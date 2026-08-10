@@ -2,6 +2,8 @@ export type WorkspaceMode = "light" | "dark" | "reading";
 
 export type DocumentStatus = "draft" | "finalized";
 export type DiscountType = "none" | "percentage" | "fixed";
+export const SUPPORTED_CURRENCIES = ["USD", "EUR", "GBP", "INR", "CAD", "AUD"] as const;
+export type CurrencyCode = (typeof SUPPORTED_CURRENCIES)[number];
 
 export interface MoneyTotals {
   subtotal: string;
@@ -29,7 +31,7 @@ export interface PricingDocument {
   customerName: string;
   documentDate: string;
   validUntil: string;
-  currency: "USD";
+  currency: CurrencyCode;
   status: DocumentStatus;
   updatedAt: string;
   finalizedAt: string | null;
@@ -44,7 +46,7 @@ export interface DocumentSummary extends MoneyTotals {
   customerName: string;
   documentDate: string;
   status: DocumentStatus;
-  currency: "USD";
+  currency: CurrencyCode;
 }
 
 export interface User {
@@ -65,12 +67,13 @@ export interface ReportResponse {
   status: DocumentStatus | "all";
   customer: string;
   totals: MoneyTotals & { documentCount: number };
+  currencyTotals: Array<MoneyTotals & { currency: CurrencyCode; documentCount: number }>;
   documents: DocumentSummary[];
 }
 
 export type UpdateDocumentInput = Pick<
   PricingDocument,
-  "title" | "customerName" | "documentDate" | "validUntil" | "lines"
+  "title" | "customerName" | "documentDate" | "validUntil" | "currency" | "lines"
 >;
 
 export interface ApiErrorBody {

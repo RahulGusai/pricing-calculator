@@ -15,19 +15,19 @@ export function CalculationSummary({ document }: { document: PricingDocument }) 
       <dl className="summary-totals">
         <div>
           <dt>Subtotal</dt>
-          <dd>{formatMoney(document.totals.subtotal)}</dd>
+          <dd>{formatMoney(document.totals.subtotal, document.currency)}</dd>
         </div>
         <div>
           <dt>Discount</dt>
-          <dd>{formatSignedMoney(document.totals.discount)}</dd>
+          <dd>{formatSignedMoney(document.totals.discount, document.currency)}</dd>
         </div>
         <div>
           <dt>Tax</dt>
-          <dd>{formatMoney(document.totals.tax)}</dd>
+          <dd>{formatMoney(document.totals.tax, document.currency)}</dd>
         </div>
         <div className="grand-total-row">
           <dt>Grand total</dt>
-          <dd>{formatMoney(document.totals.grandTotal)}</dd>
+          <dd>{formatMoney(document.totals.grandTotal, document.currency)}</dd>
         </div>
       </dl>
 
@@ -44,35 +44,35 @@ export function CalculationSummary({ document }: { document: PricingDocument }) 
         <dl>
           <div>
             <dt>Subtotal</dt>
-            <dd>{formatMoney(document.totals.subtotal)}</dd>
+            <dd>{formatMoney(document.totals.subtotal, document.currency)}</dd>
             <small>Sum of line subtotals before discount</small>
           </div>
           <div>
             <dt>Discount</dt>
-            <dd>{formatSignedMoney(document.totals.discount)}</dd>
+            <dd>{formatSignedMoney(document.totals.discount, document.currency)}</dd>
             <small>
               {document.lines
                 .filter((line) => Number(line.discount) > 0)
-                .map((line) => `${formatMoney(line.discount)} on ${line.name}`)
+                .map((line) => `${formatMoney(line.discount, document.currency)} on ${line.name}`)
                 .join(" · ") || "No discounts"}
             </small>
           </div>
           <div>
             <dt>Tax</dt>
-            <dd>{formatMoney(document.totals.tax)}</dd>
+            <dd>{formatMoney(document.totals.tax, document.currency)}</dd>
             <small>
-              Applied after discount to {formatMoney(taxableAmount.toFixed(2))} taxable amount
+              Applied after discount to {formatMoney(taxableAmount.toFixed(2), document.currency)} taxable amount
             </small>
           </div>
           <div className="detail-grand-total">
             <dt>Grand total</dt>
-            <dd>{formatMoney(document.totals.grandTotal)}</dd>
+            <dd>{formatMoney(document.totals.grandTotal, document.currency)}</dd>
           </div>
         </dl>
       </details>
 
       <p className="rounding-note">
-        Calculations are performed in USD. Rounding is applied at the line level.
+        Calculations are performed in {document.currency}. Rounding is applied at the line level.
       </p>
     </aside>
   );

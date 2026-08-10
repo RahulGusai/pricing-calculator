@@ -11,6 +11,7 @@ import {
 } from "../mocks/store";
 import {
   createDocument,
+  deleteDocument,
   duplicateDocument,
   finalizeDocument,
   getDocument,
@@ -96,6 +97,23 @@ describe("mock-first API boundary", () => {
     expect(persisted).toContain(created.id);
   });
 
+  it.each([
+    ["draft", SAMPLE_DOCUMENT_ID],
+    ["finalized", "document-finalized-002"],
+  ])("permanently deletes an owned %s document", async (_status, documentId) => {
+    await authenticate();
+
+    await deleteDocument(documentId);
+
+    await expect(getDocument(documentId)).rejects.toMatchObject({
+      status: 404,
+      body: { error: { code: "DOCUMENT_NOT_FOUND" } },
+    });
+    expect((await listDocuments()).map((document) => document.id)).not.toContain(
+      documentId,
+    );
+  });
+
   it("atomically replaces lines, finalizes, and rejects later mutation", async () => {
     await authenticate();
     const original = await getDocument(SAMPLE_DOCUMENT_ID);
@@ -104,6 +122,7 @@ describe("mock-first API boundary", () => {
       customerName: original.customerName,
       documentDate: original.documentDate,
       validUntil: original.validUntil,
+      currency: original.currency,
       lines: original.lines,
     });
     expect(updated.title).toBe("Revised multi-rate proposal");
@@ -118,6 +137,7 @@ describe("mock-first API boundary", () => {
       customerName: finalized.customerName,
       documentDate: finalized.documentDate,
       validUntil: finalized.validUntil,
+      currency: finalized.currency,
       lines: finalized.lines,
     };
     await expect(
@@ -154,6 +174,7 @@ describe("mock-first API boundary", () => {
         customerName: original.customerName,
         documentDate: original.documentDate,
         validUntil: original.validUntil,
+        currency: original.currency,
         lines: invalidLines,
       }),
     ).rejects.toMatchObject({
@@ -178,6 +199,36 @@ describe("mock-first API boundary", () => {
     expect(duplicate.lines.map((line) => line.id)).not.toEqual(
       finalized.lines.map((line) => line.id),
     );
+  });
+
+  it("persists document currency and reports each currency separately", async () => {
+    await authenticate();
+    const original = await getDocument(SAMPLE_DOCUMENT_ID);
+
+    const updated = await updateDocument(SAMPLE_DOCUMENT_ID, {
+      title: original.title,
+      customerName: original.customerName,
+      documentDate: original.documentDate,
+      validUntil: original.validUntil,
+      currency: "EUR",
+      lines: original.lines,
+    });
+
+    expect(updated.currency).toBe("EUR");
+
+    const report = await getReport({
+      startDate: "2026-06-15",
+      endDate: "2026-08-06",
+      status: "all",
+      customer: "",
+    });
+    expect(report.currencyTotals.map((total) => total.currency)).toEqual([
+      "USD",
+      "EUR",
+    ]);
+    expect(
+      report.currencyTotals.find((total) => total.currency === "EUR")?.grandTotal,
+    ).toBe("421.50");
   });
 
   it("uses inclusive report bounds and applies status/customer filters", async () => {

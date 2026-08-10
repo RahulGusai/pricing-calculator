@@ -45,10 +45,23 @@ inputs plus totals atomically.
 
 ### Finalization
 
-Lock the owned draft, recalculate all lines, require a valid non-empty document,
-generate/upload the immutable PDF, persist artifact metadata, and transition status.
-A synchronous upload is acceptable for the take-home if failure leaves the draft
-unfinalized and is surfaced clearly. A durable outbox is the production evolution.
+Read the owned draft snapshot, recalculate all lines, require a valid non-empty
+document, and render the immutable PDF. The service ends its database transaction
+before the S3-compatible upload so it never holds a database lock during external
+I/O. It then takes a short row lock, verifies `updated_at` has not changed, persists
+artifact metadata, and transitions status. An upload failure or concurrent draft
+edit leaves the document unfinalized; a newly uploaded orphan is best-effort removed.
+A durable outbox is the production evolution.
+
+### Deletion
+
+Draft and finalized documents may be permanently deleted by their authenticated owner
+only when the request body contains `{ "confirm": true }`. Finalized content remains
+immutable until the whole record is deleted. For an artifact-bearing document, the
+service commits a `deleting` intent, deletes the private object outside its database
+transaction, then removes the relational record. A storage failure restores `ready`
+and keeps the document; an interrupted final database deletion is safe to retry. The
+frontend also requires explicit confirmation for this irreversible operation.
 
 ### Reporting
 
@@ -64,6 +77,8 @@ a short-lived presigned URL. Buckets stay private.
 ## Security boundaries
 
 - Normalize unique emails and hash passwords with Argon2id.
+- Store only a SHA-256 hash of each opaque session cookie; derive the in-memory CSRF
+  token from the raw cookie and a server secret.
 - Scope repository queries by owner, returning `404` for inaccessible IDs.
 - Accept no client-controlled totals, status transitions, owner IDs, or object keys.
 - Keep secrets server-side and explicitly enumerate allowed public configuration.
@@ -72,11 +87,12 @@ a short-lived presigned URL. Buckets stay private.
 ## Deployment topology
 
 One Railway project will contain `web`, `api`, PostgreSQL, and object storage. The two
-application services point at isolated monorepo roots. Production configuration and
-exact deployment commands will be added and verified with the implementation.
+application services point at isolated monorepo roots. The API Dockerfile,
+`railway.json`, Alembic pre-deploy command, and production configuration validation
+are implemented; provisioning and a live Railway verification remain pending.
 
-## Known pre-implementation choices
+## Deliberate follow-ups
 
 See the ADR index for status and consequences. The evolved Option 1 editorial
-workspace is the approved frontend direction; backend contracts remain subject to
-the planned conformance pass.
+workspace is the approved frontend direction; the frontend still needs the documented
+mock-to-FastAPI conformance pass.

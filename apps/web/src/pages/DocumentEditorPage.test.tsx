@@ -22,6 +22,7 @@ function renderEditor(documentId = "sample-draft") {
         <ModeProvider>
           <Routes>
             <Route path="/documents/:documentId" element={<DocumentEditorPage />} />
+            <Route path="/documents" element={<p>Document register</p>} />
           </Routes>
         </ModeProvider>
       </MemoryRouter>
@@ -46,6 +47,7 @@ describe("DocumentEditorPage", () => {
     expect(screen.getByRole("textbox", { name: "Line 1 unit price" })).toHaveValue(
       "100.00",
     );
+    expect(screen.queryByText("Pricing proposals")).not.toBeInTheDocument();
   });
 
   it("autosaves an edited line and replaces totals with the API response", async () => {
@@ -61,6 +63,22 @@ describe("DocumentEditorPage", () => {
       { timeout: 3_000 },
     );
     expect(screen.getAllByText("Server calculated").length).toBeGreaterThan(0);
+  });
+
+  it("applies one editable currency across the whole document", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    const currency = await screen.findByRole("combobox", { name: "Currency" });
+    expect(currency).toHaveValue("USD");
+
+    await user.selectOptions(currency, "EUR");
+
+    await waitFor(
+      () => expect(screen.getAllByText("€421.50").length).toBeGreaterThan(0),
+      { timeout: 3_000 },
+    );
+    expect(screen.getByText(/Calculations are performed in EUR/)).toBeInTheDocument();
   });
 
   it("turns reading mode into a distraction-reduced, non-editable review", async () => {
@@ -83,5 +101,20 @@ describe("DocumentEditorPage", () => {
     expect((await screen.findAllByText("Finalized")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("textbox", { name: "Document title" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Duplicate" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["draft", "sample-draft"],
+    ["finalized", "document-finalized-002"],
+  ])("deletes a %s document after explicit confirmation", async (_status, documentId) => {
+    const user = userEvent.setup();
+    renderEditor(documentId);
+
+    await user.click(await screen.findByRole("button", { name: "Delete document" }));
+    expect(screen.getByRole("heading", { name: "Delete this document?" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete permanently" }));
+
+    expect(await screen.findByText("Document register")).toBeInTheDocument();
   });
 });

@@ -1,0 +1,1 @@
+"""Pricing Calculator FastAPI service."""

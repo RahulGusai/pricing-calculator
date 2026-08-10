@@ -38,7 +38,8 @@ FastAPI OpenAPI when the backend exists.
 6. Reject fixed discounts greater than their rounded line subtotal.
 7. Scope every document, report, and artifact query by authenticated owner.
 8. Return `404` for another user's resource; do not disclose its existence.
-9. Finalized documents are immutable across metadata, lines, ordering, and deletion.
+9. Finalized document content is immutable. Whole-document deletion is a separate,
+   permanent owner-authorized lifecycle operation that requires deliberate confirmation.
 10. PostgreSQL/SQLite stores canonical records; private S3 stores finalized artifacts.
 11. Authorize ownership before issuing any short-lived artifact download.
 12. Treat report date bounds as inclusive and keep its status policy documented.
@@ -61,8 +62,9 @@ enforces them.
 
 - Preserve the approved Option 1 evolution: editorial warmth, disciplined financial
   density, clear hierarchy, and restrained decoration.
-- Manrope is the interface/data face; Newsreader is an intentional editorial accent,
-  not a replacement for legible tabular UI.
+- Source Sans 3 is the interface/data face; Source Serif 4 is an intentional editorial
+  accent, not a replacement for legible tabular UI. Operational body copy should
+  normally be 15-16px, with 12px reserved for short labels and supporting metadata.
 - **Light** is the default operational workspace for creation and editing.
 - **Dark** is a full low-glare workspace, not an inverted marketing skin; preserve
   contrast, semantic status meaning, and data hierarchy.
@@ -74,6 +76,9 @@ enforces them.
 - Keep server state in TanStack Query and form state in React Hook Form.
 - Do not add Redux/Zustand without a demonstrated cross-cutting state problem.
 - Render API/mock-returned totals. Any local preview must be labeled non-authoritative.
+- Treat currency as immutable within each finalized document. Drafts may choose one
+  supported document currency; never imply cross-currency conversion or sum mixed
+  currencies into a single report total.
 - Cover loading, empty, error, conflict, saving, saved, draft, and finalized states.
 - Test 360, 768, 1024, and 1440 CSS pixels without horizontal page overflow.
 - Keep the mock boundary replaceable: switching to FastAPI must not rewrite pages.

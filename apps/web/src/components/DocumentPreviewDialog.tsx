@@ -44,6 +44,7 @@ export const DocumentPreviewDialog = forwardRef<
           <div><dt>Prepared for</dt><dd>{document.customerName}</dd></div>
           <div><dt>Document date</dt><dd>{formatDate(document.documentDate)}</dd></div>
           <div><dt>Valid until</dt><dd>{formatDate(document.validUntil)}</dd></div>
+          <div><dt>Currency</dt><dd>{document.currency}</dd></div>
         </dl>
 
         <table>
@@ -55,10 +56,10 @@ export const DocumentPreviewDialog = forwardRef<
               <tr key={line.id}>
                 <td><strong>{line.name}</strong><small>{line.description}</small></td>
                 <td>{line.quantity}</td>
-                <td>{formatMoney(line.unitPrice)}</td>
-                <td>{formatMoney(line.discount)}</td>
-                <td>{formatMoney(line.tax)}</td>
-                <td>{formatMoney(line.grandTotal)}</td>
+                <td>{formatMoney(line.unitPrice, document.currency)}</td>
+                <td>{formatMoney(line.discount, document.currency)}</td>
+                <td>{formatMoney(line.tax, document.currency)}</td>
+                <td>{formatMoney(line.grandTotal, document.currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -67,10 +68,10 @@ export const DocumentPreviewDialog = forwardRef<
         <footer>
           <p>Thank you for the opportunity to work together.</p>
           <dl>
-            <div><dt>Subtotal</dt><dd>{formatMoney(document.totals.subtotal)}</dd></div>
-            <div><dt>Discount</dt><dd>−{formatMoney(document.totals.discount)}</dd></div>
-            <div><dt>Tax</dt><dd>{formatMoney(document.totals.tax)}</dd></div>
-            <div><dt>Total</dt><dd>{formatMoney(document.totals.grandTotal)}</dd></div>
+            <div><dt>Subtotal</dt><dd>{formatMoney(document.totals.subtotal, document.currency)}</dd></div>
+            <div><dt>Discount</dt><dd>−{formatMoney(document.totals.discount, document.currency)}</dd></div>
+            <div><dt>Tax</dt><dd>{formatMoney(document.totals.tax, document.currency)}</dd></div>
+            <div><dt>Total</dt><dd>{formatMoney(document.totals.grandTotal, document.currency)}</dd></div>
           </dl>
         </footer>
       </article>

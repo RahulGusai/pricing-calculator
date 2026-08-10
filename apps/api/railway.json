@@ -1,0 +1,21 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": [
+      "/apps/api/**",
+      "/docs/architecture.md",
+      "/docs/deployment.md",
+      "/AGENTS.md"
+    ]
+  },
+  "deploy": {
+    "preDeployCommand": "alembic upgrade head",
+    "startCommand": "uvicorn pricing_api.main:app --host 0.0.0.0 --port $PORT",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

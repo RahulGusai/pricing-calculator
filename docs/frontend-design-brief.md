@@ -18,8 +18,8 @@ Option 1 evolved from a clean editorial concept into an operational financial de
 
 - warm, paper-like base surfaces balanced by crisp data tables;
 - deep ink neutrals and restrained accent color instead of a generic SaaS gradient;
-- Manrope for controls, navigation, metadata, and tabular figures;
-- Newsreader for selected document titles and review moments;
+- Source Sans 3 for controls, navigation, metadata, and tabular figures;
+- Source Serif 4 for selected document titles and review moments;
 - generous page hierarchy with compact density inside line items and reports;
 - visible system state through text, shape, and color, never color alone; and
 - motion limited to orientation, save feedback, and state transitions.
@@ -88,7 +88,8 @@ The reference fixture remains:
   messages alone.
 - Finalization states the irreversible consequence and requires deliberate
   confirmation.
-- Finalized views remove or disable all mutation paths consistently.
+- Finalized views remove content-editing paths consistently. Permanent whole-document
+  deletion remains available outside reading mode behind explicit confirmation.
 - Mobile line items become legible groups rather than a squeezed desktop table.
 - Empty, loading, no-results, offline/error, forbidden/not-found, and conflict states
   provide a clear next action.
@@ -103,7 +104,7 @@ The reference fixture remains:
 - **Zod:** browser-boundary validation aligned with, but never replacing, Pydantic.
 - **MSW:** replaceable network boundary with deterministic fixtures and failures.
 - **Phosphor Icons:** consistent symbol language; labels remain on critical actions.
-- **Manrope / Newsreader:** bundled interface and editorial faces with no third-party
+- **Source Sans 3 / Source Serif 4:** bundled interface and editorial faces with no third-party
   runtime font dependency.
 - **Vitest + Testing Library + jest-dom + user-event + jsdom:** observable behavior,
   semantics, and user interaction rather than implementation-detail snapshots.
@@ -132,4 +133,6 @@ sources and the adoption/avoidance rationale.
 
 Out of scope for this phase: backend enforcement, production auth, live persistence,
 real PDFs/S3 downloads, Railway provisioning, payment collection, tax compliance,
-multi-currency conversion, and accounting-ledger features.
+foreign-exchange conversion, and accounting-ledger features. A draft can select one
+supported document currency, but the application never converts amounts between
+currencies or combines mixed currencies into a single report total.

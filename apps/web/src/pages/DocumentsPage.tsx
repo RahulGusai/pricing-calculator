@@ -5,12 +5,15 @@ import {
   MagnifyingGlass,
   Plus,
   SpinnerGap,
+  Trash,
+  X,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { createDocument, listDocuments } from "../lib/api";
+import { createDocument, deleteDocument, listDocuments } from "../lib/api";
+import { formatMoney } from "../lib/format";
 import type { DocumentStatus, DocumentSummary } from "../types";
 
 type StatusFilter = DocumentStatus | "all";
@@ -23,16 +26,6 @@ function formatDate(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(date);
-}
-
-function formatMoney(value: string, currency = "USD") {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return value;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
 }
 
 function queryError(error: unknown) {
@@ -52,6 +45,8 @@ function matchesSearch(document: DocumentSummary, search: string) {
 export function DocumentsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [pendingDelete, setPendingDelete] = useState<DocumentSummary | null>(null);
+  const deleteRef = useRef<HTMLDialogElement>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -67,6 +62,33 @@ export function DocumentsPage() {
       navigate(`/documents/${document.id}`);
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (document: DocumentSummary) => deleteDocument(document.id),
+    onSuccess: (_result, deletedDocument) => {
+      queryClient.setQueryData<DocumentSummary[]>(["documents"], (current) =>
+        current?.filter((document) => document.id !== deletedDocument.id),
+      );
+      void queryClient.invalidateQueries({ queryKey: ["report"] });
+      deleteRef.current?.close();
+      setPendingDelete(null);
+    },
+  });
+
+  useEffect(() => {
+    if (pendingDelete && !deleteRef.current?.open) deleteRef.current?.showModal();
+  }, [pendingDelete]);
+
+  function openDeleteConfirmation(document: DocumentSummary) {
+    deleteMutation.reset();
+    setPendingDelete(document);
+  }
+
+  function closeDeleteConfirmation() {
+    if (deleteMutation.isPending) return;
+    deleteRef.current?.close();
+    setPendingDelete(null);
+  }
 
   const documents = useMemo(() => documentsQuery.data ?? [], [documentsQuery.data]);
   const visibleDocuments = useMemo(
@@ -271,13 +293,25 @@ export function DocumentsPage() {
                     {formatMoney(document.grandTotal, document.currency)}
                   </td>
                   <td className="ancillary-action-cell">
-                    <Link
-                      className="ancillary-icon-link"
-                      to={`/documents/${document.id}`}
-                      aria-label={`Open ${document.number} for ${document.customerName}`}
-                    >
-                      <ArrowUpRight size={19} aria-hidden="true" />
-                    </Link>
+                    <div className="document-row-actions">
+                      <Link
+                        className="ancillary-icon-link"
+                        to={`/documents/${document.id}`}
+                        aria-label={`Open ${document.number} for ${document.customerName}`}
+                        title="Open document"
+                      >
+                        <ArrowUpRight size={19} aria-hidden="true" />
+                      </Link>
+                      <button
+                        className="ancillary-icon-button ancillary-icon-button-danger"
+                        type="button"
+                        aria-label={`Delete ${document.number} for ${document.customerName}`}
+                        title="Delete document"
+                        onClick={() => openDeleteConfirmation(document)}
+                      >
+                        <Trash size={18} aria-hidden="true" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -285,6 +319,53 @@ export function DocumentsPage() {
           </table>
         </div>
       ) : null}
+
+      <dialog
+        className="confirmation-dialog document-delete-dialog"
+        ref={deleteRef}
+        aria-labelledby="register-delete-title"
+        onClose={() => {
+          if (!deleteMutation.isPending) setPendingDelete(null);
+        }}
+      >
+        <button
+          className="icon-button dialog-close"
+          type="button"
+          aria-label="Close confirmation"
+          onClick={closeDeleteConfirmation}
+        >
+          <X size={20} aria-hidden="true" />
+        </button>
+        <span className="dialog-icon danger"><Trash size={24} aria-hidden="true" /></span>
+        <h2 id="register-delete-title">Delete this document?</h2>
+        <p>
+          This permanently removes the document from this workspace and cannot be undone.
+        </p>
+        {pendingDelete ? (
+          <dl>
+            <div><dt>Document</dt><dd>{pendingDelete.number}</dd></div>
+            <div><dt>Status</dt><dd>{pendingDelete.status === "finalized" ? "Finalized" : "Draft"}</dd></div>
+            <div><dt>Customer</dt><dd>{pendingDelete.customerName || "Not set"}</dd></div>
+          </dl>
+        ) : null}
+        {deleteMutation.isError ? (
+          <p className="dialog-error" role="alert">{queryError(deleteMutation.error)}</p>
+        ) : null}
+        <div className="dialog-actions">
+          <button className="button secondary" type="button" onClick={closeDeleteConfirmation} disabled={deleteMutation.isPending}>
+            Cancel
+          </button>
+          <button
+            className="button danger"
+            type="button"
+            onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete)}
+            disabled={!pendingDelete || deleteMutation.isPending}
+          >
+            <Trash size={18} aria-hidden="true" />
+            {deleteMutation.isPending ? "Deleting…" : "Delete permanently"}
+          </button>
+        </div>
+      </dialog>
     </section>
   );
 }

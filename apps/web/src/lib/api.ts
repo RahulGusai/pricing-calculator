@@ -153,6 +153,12 @@ export function updateDocument(
   );
 }
 
+export function deleteDocument(id: string): Promise<void> {
+  return request<void>(`/api/v1/documents/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 export function finalizeDocument(id: string): Promise<PricingDocument> {
   return request<PricingDocument>(
     `/api/v1/documents/${encodeURIComponent(id)}/finalize`,

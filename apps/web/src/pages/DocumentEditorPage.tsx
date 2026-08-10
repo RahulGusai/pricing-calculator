@@ -33,13 +33,19 @@ import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import { ModeSwitch } from "../components/ModeSwitch";
 import { useWorkspaceMode } from "../context/ModeContext";
 import {
+  deleteDocument,
   duplicateDocument,
   finalizeDocument,
   getDocument,
   updateDocument,
 } from "../lib/api";
-import { formatDate, formatMoney } from "../lib/format";
-import type { LineItem, PricingDocument, UpdateDocumentInput } from "../types";
+import { formatCurrencySymbol, formatDate, formatMoney } from "../lib/format";
+import {
+  SUPPORTED_CURRENCIES,
+  type LineItem,
+  type PricingDocument,
+  type UpdateDocumentInput,
+} from "../types";
 
 const decimalPattern = /^\d+(?:\.\d{1,4})?$/;
 const moneyPattern = /^\d+(?:\.\d{1,2})?$/;
@@ -65,6 +71,7 @@ const documentSchema = z.object({
   customerName: z.string().trim().min(2, "Enter a customer name"),
   documentDate: z.iso.date("Choose a valid date"),
   validUntil: z.iso.date("Choose a valid date"),
+  currency: z.enum(SUPPORTED_CURRENCIES),
   lines: z.array(lineSchema).min(1, "Add at least one line item"),
 });
 
@@ -74,6 +81,7 @@ function toFormValues(document: PricingDocument): UpdateDocumentInput {
     customerName: document.customerName,
     documentDate: document.documentDate,
     validUntil: document.validUntil,
+    currency: document.currency,
     lines: document.lines,
   };
 }
@@ -118,6 +126,7 @@ export function DocumentEditorPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const previewRef = useRef<HTMLDialogElement>(null);
   const finalizeRef = useRef<HTMLDialogElement>(null);
+  const deleteRef = useRef<HTMLDialogElement>(null);
   const initializedDocument = useRef<string | null>(null);
 
   const documentQuery = useQuery({
@@ -134,6 +143,7 @@ export function DocumentEditorPage() {
       customerName: "",
       documentDate: "",
       validUntil: "",
+      currency: "USD",
       lines: [],
     },
   });
@@ -187,10 +197,24 @@ export function DocumentEditorPage() {
     onError: (error) => setNotice(error instanceof Error ? error.message : "Could not duplicate document"),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteDocument(documentId),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ["document", documentId] });
+      void queryClient.invalidateQueries({ queryKey: ["documents"] });
+      void queryClient.invalidateQueries({ queryKey: ["report"] });
+      deleteRef.current?.close();
+      navigate("/documents");
+    },
+    onError: (error) => setNotice(error instanceof Error ? error.message : "Could not delete document"),
+  });
+
   const document = documentQuery.data;
   const isFinalized = document?.status === "finalized";
   const isReading = mode === "reading";
   const isReadOnly = Boolean(isFinalized || isReading);
+  const selectedCurrency = watchedValues.currency ?? document?.currency ?? "USD";
+  const currencySymbol = formatCurrencySymbol(selectedCurrency);
 
   useEffect(() => {
     if (!document || isReadOnly || !form.formState.isDirty || saveMutation.isPending) return;
@@ -274,8 +298,6 @@ export function DocumentEditorPage() {
           <nav aria-label="Breadcrumb">
             <Link to="/documents">Documents</Link>
             <span aria-hidden="true">/</span>
-            <span>Pricing proposals</span>
-            <span aria-hidden="true">/</span>
             <strong>{document.title}</strong>
           </nav>
           <div className="document-state">
@@ -321,32 +343,47 @@ export function DocumentEditorPage() {
           <button
             type="button"
             className="button secondary"
+            aria-label="Preview"
             onClick={() => void openPreview()}
             disabled={saveMutation.isPending}
           >
             <Eye size={18} aria-hidden="true" />
-            Preview
+            <span>Preview</span>
           </button>
+          {!isReading && (
+            <button
+              type="button"
+              className="button danger-outline"
+              aria-label="Delete document"
+              onClick={() => deleteRef.current?.showModal()}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash size={18} aria-hidden="true" />
+              <span>Delete</span>
+            </button>
+          )}
           {isFinalized ? (
             <button
               type="button"
               className="button primary"
+              aria-label="Duplicate"
               onClick={() => duplicateMutation.mutate()}
               disabled={duplicateMutation.isPending}
             >
               <Copy size={18} aria-hidden="true" />
-              Duplicate
+              <span>Duplicate</span>
             </button>
           ) : (
             !isReading && (
               <button
                 type="button"
                 className="button primary"
+                aria-label="Finalize"
                 onClick={() => finalizeRef.current?.showModal()}
                 disabled={saveMutation.isPending || finalizeMutation.isPending}
               >
                 <Check size={18} weight="bold" aria-hidden="true" />
-                Finalize
+                <span>Finalize</span>
               </button>
             )
           )}
@@ -418,6 +455,18 @@ export function DocumentEditorPage() {
                   </span>
                 )}
               </label>
+              <label>
+                <span>Currency</span>
+                {isReadOnly ? (
+                  <strong>{form.getValues("currency")}</strong>
+                ) : (
+                  <select {...form.register("currency")} aria-label="Currency">
+                    {SUPPORTED_CURRENCIES.map((currency) => (
+                      <option key={currency} value={currency}>{currency}</option>
+                    ))}
+                  </select>
+                )}
+              </label>
             </div>
           </section>
 
@@ -477,18 +526,18 @@ export function DocumentEditorPage() {
                     </div>
 
                     <div className="money-input" role="cell" data-label="Unit price">
-                      {isReadOnly ? <span>{formatMoney(field.unitPrice)}</span> : <><span aria-hidden="true">$</span><input inputMode="decimal" aria-label={`Line ${index + 1} unit price`} {...form.register(`lines.${index}.unitPrice`)} /></>}
+                      {isReadOnly ? <span>{formatMoney(field.unitPrice, selectedCurrency)}</span> : <><span aria-hidden="true">{currencySymbol}</span><input inputMode="decimal" aria-label={`Line ${index + 1} unit price`} {...form.register(`lines.${index}.unitPrice`)} /></>}
                     </div>
 
                     <div className="discount-input" role="cell" data-label="Discount">
                       {isReadOnly ? (
-                        <span>{field.discountType === "percentage" ? `${field.discountValue}%` : field.discountType === "fixed" ? formatMoney(field.discountValue) : "—"}</span>
+                        <span>{field.discountType === "percentage" ? `${field.discountValue}%` : field.discountType === "fixed" ? formatMoney(field.discountValue, selectedCurrency) : "—"}</span>
                       ) : (
                         <>
                           <select aria-label={`Line ${index + 1} discount type`} {...form.register(`lines.${index}.discountType`)}>
                             <option value="none">—</option>
                             <option value="percentage">%</option>
-                            <option value="fixed">$</option>
+                            <option value="fixed">{currencySymbol}</option>
                           </select>
                           <input inputMode="decimal" aria-label={`Line ${index + 1} discount value`} disabled={form.getValues(`lines.${index}.discountType`) === "none"} {...form.register(`lines.${index}.discountValue`)} />
                         </>
@@ -509,7 +558,7 @@ export function DocumentEditorPage() {
                     </div>
 
                     <strong className="line-total" role="cell" data-label="Line total">
-                      {formatMoney(serverLine.grandTotal)}
+                      {formatMoney(serverLine.grandTotal, selectedCurrency)}
                     </strong>
 
                     <div className="line-actions" role="cell">
@@ -555,10 +604,10 @@ export function DocumentEditorPage() {
           )}
         </form>
 
-        <CalculationSummary document={document} />
+        <CalculationSummary document={{ ...document, currency: selectedCurrency }} />
       </div>
 
-      <DocumentPreviewDialog ref={previewRef} document={document} />
+      <DocumentPreviewDialog ref={previewRef} document={{ ...document, currency: selectedCurrency }} />
 
       <dialog className="confirmation-dialog" ref={finalizeRef} aria-labelledby="finalize-title">
         <form method="dialog">
@@ -572,7 +621,7 @@ export function DocumentEditorPage() {
         </p>
         <dl>
           <div><dt>Document</dt><dd>{document.number}</dd></div>
-          <div><dt>Grand total</dt><dd>{formatMoney(document.totals.grandTotal)}</dd></div>
+          <div><dt>Grand total</dt><dd>{formatMoney(document.totals.grandTotal, selectedCurrency)}</dd></div>
         </dl>
         <div className="dialog-actions">
           <form method="dialog"><button className="button secondary">Keep editing</button></form>
@@ -583,6 +632,35 @@ export function DocumentEditorPage() {
             disabled={finalizeMutation.isPending || saveMutation.isPending}
           >
             {finalizeMutation.isPending ? "Finalizing…" : "Finalize document"}
+          </button>
+        </div>
+      </dialog>
+
+      <dialog className="confirmation-dialog" ref={deleteRef} aria-labelledby="delete-title">
+        <form method="dialog">
+          <button className="icon-button dialog-close" aria-label="Close confirmation"><X size={20} /></button>
+        </form>
+        <span className="dialog-icon danger"><Trash size={24} aria-hidden="true" /></span>
+        <h2 id="delete-title">Delete this document?</h2>
+        <p>
+          This permanently removes the {isFinalized ? "finalized document" : "draft"} from this
+          workspace and cannot be undone.
+        </p>
+        <dl>
+          <div><dt>Document</dt><dd>{document.number}</dd></div>
+          <div><dt>Status</dt><dd>{isFinalized ? "Finalized" : "Draft"}</dd></div>
+          <div><dt>Customer</dt><dd>{document.customerName || "Not set"}</dd></div>
+        </dl>
+        <div className="dialog-actions">
+          <form method="dialog"><button className="button secondary" disabled={deleteMutation.isPending}>Cancel</button></form>
+          <button
+            type="button"
+            className="button danger"
+            onClick={() => deleteMutation.mutate()}
+            disabled={deleteMutation.isPending}
+          >
+            <Trash size={18} aria-hidden="true" />
+            {deleteMutation.isPending ? "Deleting…" : "Delete permanently"}
           </button>
         </div>
       </dialog>

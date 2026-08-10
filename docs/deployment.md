@@ -30,8 +30,17 @@ The web image is built with Node 24 and `npm ci`, then served by Caddy. It does 
 Set these variables on `api`:
 
 ```dotenv
+APP_ENVIRONMENT=production
 PORT=8000
 DATABASE_URL=${{Postgres.DATABASE_URL}}
+CORS_ALLOWED_ORIGINS=
+PRICING_SUPPORTED_CURRENCIES=USD,INR,AED
+PRICING_DEFAULT_CURRENCY=USD
+SESSION_COOKIE_NAME=pricing_session
+SESSION_COOKIE_SECURE=true
+SESSION_TTL_HOURS=8
+CSRF_SECRET=replace-with-a-unique-high-entropy-secret
+ARTIFACT_STORAGE=s3
 S3_BUCKET=replace-for-aws
 S3_REGION=replace-for-aws
 AWS_ACCESS_KEY_ID=replace-for-aws
@@ -40,11 +49,20 @@ S3_URL_STYLE=virtual
 S3_PRESIGNED_URL_TTL_SECONDS=300
 ```
 
-`PORT` is deliberately fixed. The API process binds to it, Railway uses it for health checks and public routing, and Caddy uses the same port over private networking. `DATABASE_URL` references the Postgres service's private connection string; do not substitute `DATABASE_PUBLIC_URL` for service-to-service traffic.
+`APP_ENVIRONMENT=production` makes FastAPI refuse SQLite, local artifact storage,
+an insecure session cookie, or the development CSRF secret at startup. The three
+configured currencies are USD, INR, and AED; all use two decimal places. Leave
+`CORS_ALLOWED_ORIGINS` empty for the same-origin Caddy topology. `PORT` is deliberately
+fixed. The API process binds to it, Railway uses it for health checks and public
+routing, and Caddy uses the same port over private networking. `DATABASE_URL`
+references the Postgres service's private connection string; do not substitute
+`DATABASE_PUBLIC_URL` for service-to-service traffic.
 
 `S3_URL_STYLE` and `S3_PRESIGNED_URL_TTL_SECONDS` are optional. Virtual-hosted addressing is the production default, and five-minute presigned links limit the exposure of private artifacts. Store object keys and metadata in Postgres rather than permanent signed URLs.
 
-Keep storage credentials on `api` only. Never add them to `web`, prefix them with `VITE_`, or commit them to an environment file. Manually entered AWS credentials should be sealed in Railway after verification.
+Keep `CSRF_SECRET` and storage credentials on `api` only. Never add them to `web`,
+prefix them with `VITE_`, or commit them to an environment file. Manually entered AWS
+credentials should be sealed in Railway after verification.
 
 ### Web
 

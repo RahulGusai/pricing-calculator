@@ -6,6 +6,7 @@ import type {
   UpdateDocumentInput,
   User,
 } from "../types";
+import { SUPPORTED_CURRENCIES } from "../types";
 import {
   buildFixtureDocuments,
   MOCK_ACCESS_TOKEN,
@@ -187,6 +188,9 @@ class MockStore {
     if (!input.customerName.trim()) {
       fields.customerName = "Customer name is required.";
     }
+    if (!SUPPORTED_CURRENCIES.includes(input.currency)) {
+      fields.currency = "Choose a supported document currency.";
+    }
     assertIsoDate(input.documentDate, "documentDate");
     assertIsoDate(input.validUntil, "validUntil");
     if (input.validUntil < input.documentDate) {
@@ -282,6 +286,13 @@ class MockStore {
     return publicDocument(document);
   }
 
+  delete(ownerId: string, documentId: string): void {
+    const document = this.findOwned(ownerId, documentId);
+    const index = this.state.documents.indexOf(document);
+    this.state.documents.splice(index, 1);
+    this.persist();
+  }
+
   update(
     ownerId: string,
     documentId: string,
@@ -302,6 +313,7 @@ class MockStore {
       customerName: input.customerName.trim(),
       documentDate: input.documentDate,
       validUntil: input.validUntil,
+      currency: input.currency,
       lines: calculated.lines,
       totals: calculated.totals,
       updatedAt: this.nextTimestamp(),
@@ -407,6 +419,17 @@ class MockStore {
       )
       .sort((left, right) => right.documentDate.localeCompare(left.documentDate));
     const totals = sumTotals(documents.map((document) => document.totals));
+    const currencyTotals = SUPPORTED_CURRENCIES.flatMap((currency) => {
+      const matchingDocuments = documents.filter(
+        (document) => document.currency === currency,
+      );
+      if (matchingDocuments.length === 0) return [];
+      return [{
+        currency,
+        documentCount: matchingDocuments.length,
+        ...sumTotals(matchingDocuments.map((document) => document.totals)),
+      }];
+    });
 
     return {
       startDate,
@@ -414,6 +437,7 @@ class MockStore {
       status,
       customer,
       totals: { ...totals, documentCount: documents.length },
+      currencyTotals,
       documents: documents.map(documentSummary).map(clone),
     };
   }

@@ -11,6 +11,7 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getReport } from "../lib/api";
+import { formatMoney } from "../lib/format";
 import type { DocumentStatus } from "../types";
 
 interface ReportFilters {
@@ -43,16 +44,6 @@ function formatDate(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(date);
-}
-
-function formatMoney(value: string, currency = "USD") {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return value;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
 }
 
 function reportError(error: unknown) {
@@ -229,32 +220,53 @@ export function ReportsPage() {
           </div>
 
           <section className="report-summary" aria-labelledby="report-summary-title">
-            <div className="report-summary-primary">
-              <p id="report-summary-title">Grand total</p>
-              <strong>{formatMoney(report.totals.grandTotal)}</strong>
+            <div className={`report-summary-primary ${report.currencyTotals.length > 1 ? "is-mixed" : ""}`}>
+              <p id="report-summary-title">
+                {report.currencyTotals.length > 1 ? "Currency groups" : "Grand total"}
+              </p>
+              <strong>
+                {report.currencyTotals.length > 1
+                  ? `${report.currencyTotals.length} currencies`
+                  : formatMoney(
+                      report.currencyTotals[0]?.grandTotal ?? "0.00",
+                      report.currencyTotals[0]?.currency ?? "USD",
+                    )}
+              </strong>
               <span>
                 Across {report.totals.documentCount} document
                 {report.totals.documentCount === 1 ? "" : "s"}
               </span>
             </div>
-            <dl className="report-summary-breakdown">
-              <div>
-                <dt>Subtotal</dt>
-                <dd>{formatMoney(report.totals.subtotal)}</dd>
-              </div>
-              <div>
-                <dt>Discounts</dt>
-                <dd>{formatMoney(report.totals.discount)}</dd>
-              </div>
-              <div>
-                <dt>Tax</dt>
-                <dd>{formatMoney(report.totals.tax)}</dd>
-              </div>
-              <div>
-                <dt>Documents</dt>
-                <dd>{report.totals.documentCount}</dd>
-              </div>
-            </dl>
+            {report.currencyTotals.length > 1 ? (
+              <dl className="report-summary-breakdown currency-breakdown">
+                {report.currencyTotals.map((total) => (
+                  <div key={total.currency}>
+                    <dt>{total.currency} total</dt>
+                    <dd>{formatMoney(total.grandTotal, total.currency)}</dd>
+                    <small>{total.documentCount} document{total.documentCount === 1 ? "" : "s"}</small>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <dl className="report-summary-breakdown">
+                <div>
+                  <dt>Subtotal</dt>
+                  <dd>{formatMoney(report.totals.subtotal, report.currencyTotals[0]?.currency)}</dd>
+                </div>
+                <div>
+                  <dt>Discounts</dt>
+                  <dd>{formatMoney(report.totals.discount, report.currencyTotals[0]?.currency)}</dd>
+                </div>
+                <div>
+                  <dt>Tax</dt>
+                  <dd>{formatMoney(report.totals.tax, report.currencyTotals[0]?.currency)}</dd>
+                </div>
+                <div>
+                  <dt>Documents</dt>
+                  <dd>{report.totals.documentCount}</dd>
+                </div>
+              </dl>
+            )}
           </section>
 
           <section className="report-detail" aria-labelledby="report-detail-title">

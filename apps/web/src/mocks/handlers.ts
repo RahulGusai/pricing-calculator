@@ -149,6 +149,16 @@ export const handlers = [
     }
   }),
 
+  http.delete("*/api/v1/documents/:documentId", async ({ request, params }) => {
+    await simulateLatency();
+    try {
+      mockStore.delete(requireOwner(request), String(params.documentId));
+      return new HttpResponse(null, { status: 204 });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }),
+
   http.patch(
     "*/api/v1/documents/:documentId",
     async ({ request, params }) => {

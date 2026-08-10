@@ -16,6 +16,19 @@ and Zod. Develop first against Mock Service Worker handlers that mirror the plan
 REST contract and preserve deterministic state locally. Generate the final API types
 from FastAPI OpenAPI when the backend exists.
 
+Library responsibilities stay deliberately narrow:
+
+- React Router owns protected layouts and URL-addressable workflow state.
+- TanStack Query owns request state, caching, invalidation, and mutations.
+- React Hook Form owns dynamic line-item and field interaction state.
+- Zod validates the browser boundary without replacing backend validation.
+- MSW supplies the same request boundary to development and tests.
+- Phosphor supplies one icon vocabulary; labels remain for consequential actions.
+- Bundled Manrope and Newsreader variable fonts provide interface and editorial roles
+  without a third-party runtime request.
+- Vitest, Testing Library, jest-dom, user-event, and jsdom exercise behavior and
+  accessibility-oriented semantics.
+
 ## Alternatives
 
 Next.js adds a second server runtime without a current SSR requirement. Redux adds

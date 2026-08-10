@@ -4,33 +4,36 @@ These instructions apply to the entire repository. A more deeply nested
 `AGENTS.md` may add stricter, directory-specific rules but must not weaken these
 invariants.
 
-## Mission and current gate
+## Mission and phase gates
 
 Build a correct, reviewable pricing-document application while keeping business
 rules centralized and deployment reproducible.
 
-The repository is currently at the **design approval checkpoint**. Do not create
-frontend source, manifests, generated clients, or a runnable prototype until the
-user explicitly selects and approves a visual direction. Documentation and design
-artifacts may be refined without crossing that gate.
+- The **Option 1 evolved frontend direction is approved**. Frontend implementation,
+  mock behavior, tests, and accessibility work may proceed within that direction.
+- The backend, real authentication, database, S3 integration, and Railway deployment
+  remain unimplemented. Do not start or claim those phases without an in-scope task.
+- Do not present mock calculations, local previews, or Sites-compatible artifacts as
+  a deployed or server-authoritative production system.
 
 ## Directory ownership
 
-- `apps/web`: React UI, mocked API, accessibility, browser tests.
-- `apps/api`: FastAPI routes, domain services, persistence, migrations, storage.
-- `docs`: architecture, design rationale, and ADRs.
+- `apps/web`: React UI, mock API, accessibility, and browser/unit tests.
+- `apps/api`: FastAPI routes, domain services, persistence, migrations, and storage.
+- `docs`: architecture, design rationale, research, and ADRs.
 - Root: cross-service policies, contributor workflow, CI, and deployment entrypoints.
 
-Keep frontend and backend deployable as isolated Railway services. Do not introduce
-a shared runtime package merely to share cross-language types; generate the web API
-contract from FastAPI OpenAPI when the backend exists.
+Keep web and API deployable as isolated Railway services. Do not introduce a shared
+runtime package merely to share cross-language types; generate the web contract from
+FastAPI OpenAPI when the backend exists.
 
 ## Non-negotiable domain invariants
 
 1. Never use binary floating point for authoritative money or rates.
 2. Never trust client-submitted totals, status, ownership, or artifact keys.
 3. Calculate discount before tax; tax applies to the discounted line amount.
-4. Only one pure backend pricing module may implement the formulas and rounding.
+4. Only one pure backend pricing module may implement authoritative formulas and
+   rounding.
 5. Sum already-rounded line components to obtain document totals.
 6. Reject fixed discounts greater than their rounded line subtotal.
 7. Scope every document, report, and artifact query by authenticated owner.
@@ -40,27 +43,39 @@ contract from FastAPI OpenAPI when the backend exists.
 11. Authorize ownership before issuing any short-lived artifact download.
 12. Treat report date bounds as inclusive and keep its status policy documented.
 
+The mock service must model these rules, but it is never proof that the future API
+enforces them.
+
 ## Layer boundaries
 
 - HTTP routes translate transport concerns only.
 - Application services own lifecycle decisions and transaction boundaries.
 - Repositories own persistence and tenant-scoped queries.
 - The pricing module is pure, deterministic, and independent of HTTP/database code.
-- Artifact storage sits behind an interface with local test and S3 implementations.
+- Artifact storage sits behind an interface with test and S3 implementations.
 - React components consume an API client; they do not call `fetch` ad hoc.
-- Mock handlers implement the planned API contract rather than component-specific
-  shortcuts.
+- Mock handlers implement the planned API contract, not component-specific shortcuts.
+- Components never import fixture data or mutate mock storage directly.
 
-## Frontend standards
+## Frontend direction and semantics
 
+- Preserve the approved Option 1 evolution: editorial warmth, disciplined financial
+  density, clear hierarchy, and restrained decoration.
+- Manrope is the interface/data face; Newsreader is an intentional editorial accent,
+  not a replacement for legible tabular UI.
+- **Light** is the default operational workspace for creation and editing.
+- **Dark** is a full low-glare workspace, not an inverted marketing skin; preserve
+  contrast, semantic status meaning, and data hierarchy.
+- **Reading** is a paper-like, reduced-chrome review mode for any document. It must
+  suppress editing affordances rather than merely recolor them; lifecycle status
+  remains visible and independent from the chosen mode.
+- Use Phosphor icons consistently. Consequential or ambiguous actions require labels;
+  icon-only controls require accessible names and tooltips where helpful.
 - Keep server state in TanStack Query and form state in React Hook Form.
 - Do not add Redux/Zustand without a demonstrated cross-cutting state problem.
-- Render server-returned totals; any preview must be clearly non-authoritative.
-- Every interaction must work by keyboard and expose a visible focus state.
-- Meet WCAG 2.2 AA contrast and semantics.
+- Render API/mock-returned totals. Any local preview must be labeled non-authoritative.
 - Cover loading, empty, error, conflict, saving, saved, draft, and finalized states.
-- Test at 360, 768, 1024, and 1440 CSS pixels without horizontal page overflow.
-- Use deterministic mock fixtures derived from the assignment, including `421.50`.
+- Test 360, 768, 1024, and 1440 CSS pixels without horizontal page overflow.
 - Keep the mock boundary replaceable: switching to FastAPI must not rewrite pages.
 
 ## Backend standards
@@ -70,47 +85,55 @@ contract from FastAPI OpenAPI when the backend exists.
 - Create all schema changes with Alembic; never rewrite an applied migration.
 - Production startup must fail when configured with SQLite or local artifact storage.
 - Hash passwords with a memory-hard algorithm and keep secrets out of logs.
-- Do not hold database locks while performing long external I/O without documenting
-  the consistency tradeoff.
+- Do not hold database locks during long external I/O without documenting the
+  consistency tradeoff.
 
 ## Change workflow
 
-1. Read the relevant README, architecture note, and ADRs.
-2. Inspect `git status` and preserve unrelated/user-owned changes.
+1. Read the relevant README, architecture note, research note, and ADRs.
+2. Inspect `git status` and preserve unrelated and user-owned changes.
 3. State assumptions when the task leaves a material choice open.
 4. Make the smallest coherent change; avoid opportunistic rewrites.
 5. Add a failing regression test before fixing a bug when practical.
-6. Update examples, OpenAPI-derived types, environment templates, and docs with the
+6. Update examples, generated types, environment templates, and docs with the
    implementation they describe.
-7. Run the checks appropriate to the touched surface and report exact results.
+7. Run checks appropriate to the touched surface and report exact results.
 
 Never add a dependency without recording why it is needed. Never commit secrets,
 real customer data, `.env` files, databases, uploads, coverage output, or temporary
-Superdesign files.
+design-tool files. Never overwrite or discard unrelated changes to make a task easier.
 
-## Commands
+## Current web commands
 
-Do not invent commands. The repository intentionally has no runnable application at
-this checkpoint. When manifests and root automation are added, document and verify
-the canonical setup, format, lint, typecheck, test, build, migration, and development
-commands here and in the README from a clean environment.
+Run from `apps/web` after `npm ci`:
+
+- `npm run dev` - local Vite development server.
+- `npm run test` - Vitest suite.
+- `npm run typecheck` - TypeScript checking without emission.
+- `npm run lint` - ESLint.
+- `npm run build` - production frontend/Sites-compatible build preparation.
+- `npm run test:sites` - hosting-worker contract test.
+
+These are manifest-defined commands, not a claim that they passed in a given handoff.
+Report each command actually run and its observed result. Add backend commands only
+after they exist and have been verified.
 
 ## Tests required by change type
 
-- Pricing: exact sample, boundary/rounding cases, fixed/percent discounts, tax order,
-  and algebraic invariants.
+- Pricing: exact `421.50` sample, boundary/rounding cases, fixed/percent discounts,
+  tax order, and algebraic invariants.
 - Persistence: SQLite plus PostgreSQL parity for constraints and migrations.
 - API: auth, ownership isolation, validation errors, lifecycle conflicts, reports,
   and artifact authorization/failure.
-- UI: protected routes, dynamic rows, server totals, finalized read-only behavior,
-  keyboard/focus behavior, and error/empty/loading states.
+- UI: protected routes, dynamic rows, returned totals, finalized read-only behavior,
+  mode semantics, keyboard/focus behavior, and error/empty/loading states.
 - End-to-end: sign up, reproduce `421.50`, finalize, reject editing, download the
   artifact, and see the document in the date report.
 
 ## Migrations and deployment safety
 
-- Do not run production migrations or mutate Railway/AWS state without explicit
-  user authorization.
+- Do not run production migrations or mutate Railway/AWS state without explicit user
+  authorization.
 - Keep migrations backward compatible with overlapping deploys.
 - Never deploy SQLite to Railway production.
 - Bind services to Railway's assigned port and expose explicit health checks.
@@ -118,10 +141,11 @@ commands here and in the README from a clean environment.
 
 ## Definition of done
 
-- Scope and UX acceptance criteria are satisfied.
-- Formatting, lint, type checks, unit/integration tests, and production builds pass.
-- The relevant migration upgrades cleanly on both supported database paths.
-- Accessibility and responsive states are manually inspected.
+- Scope and approved UX acceptance criteria are satisfied.
+- Formatting, lint, type checks, relevant tests, and production builds pass.
+- Accessibility has no known serious/critical automated violations and keyboard,
+  focus, responsive, and mode states are manually inspected.
+- Relevant migrations upgrade cleanly on every supported database path.
 - No secrets, local state, generated junk, or unrelated diffs are present.
-- README, environment examples, ADRs, and API contract match the change.
+- README, environment examples, ADRs, and API contract match actual behavior.
 - Handoff lists changed files, commands run, results, assumptions, and remaining risk.

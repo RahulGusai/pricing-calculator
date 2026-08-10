@@ -4,18 +4,34 @@ A full-stack take-home project for creating pricing documents with per-line
 discounts and taxes, enforcing a draft/finalized lifecycle, and reporting totals
 over an issue-date range.
 
-> **Current checkpoint:** repository scaffold and visual design exploration only.
-> No frontend or backend application code has been implemented. Frontend work
-> starts only after a visual direction is approved.
+> **Current checkpoint:** the React frontend is implemented and verified against a
+> deterministic mock API. The FastAPI service, database schema, S3 integration, and
+> Railway deployment remain separate future phases.
 
 ## Links
 
 | Surface | URL |
 | --- | --- |
-| Frontend | Pending deployment |
-| API | Pending deployment |
-| OpenAPI | Pending deployment |
+| Frontend | Pending Railway deployment |
+| API | Pending implementation and deployment |
+| OpenAPI | Pending backend implementation |
 | Repository | <https://github.com/RahulGusai/pricing-calculator> |
+
+No live application URL is claimed at this checkpoint.
+
+## Frontend preview
+
+The mock workspace includes demo access for
+`avery@northstar.example` / `pricing123`.
+
+| Visual | Purpose |
+| --- | --- |
+| [Approved direction](docs/visuals/revised-option-1.png) | Evolved Option 1 desktop target |
+| [Light editor](docs/visuals/editor-light.jpg) | Operational editing workspace |
+| [Dark editor](docs/visuals/editor-dark.jpg) | Low-glare editing workspace |
+| [Reading editor](docs/visuals/editor-reading.jpg) | Distraction-reduced review workspace |
+| [Calculation summary](docs/visuals/editor-light-summary.jpg) | Auditable server-returned totals |
+| [Sign in](docs/visuals/login-light.jpg) | Demo authentication entry point |
 
 ## Product scope
 
@@ -27,32 +43,39 @@ over an issue-date range.
 - Inclusive issue-date range reporting for document count, grand total, tax, and
   discount.
 - Immutable finalized PDF artifacts in private S3-compatible object storage.
-- Optional duplication of a finalized document into a new draft.
+- Duplication of a finalized document into a new draft.
 
-## Planned architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    Browser["React web app"] -->|same-origin /api| API["FastAPI"]
+    Browser["React web app"] -->|"mock API now; /api later"| API["FastAPI"]
     API --> DB["PostgreSQL / SQLite"]
     API --> S3["Private S3 bucket"]
 ```
 
-The relational database is the source of truth for users, documents, line items,
-status, and totals. S3 stores immutable generated artifacts, never the mutable
-business record. Production will use PostgreSQL; SQLite remains a local and test
-convenience.
+The relational database will be the source of truth for users, documents, line
+items, status, and totals. S3 will store immutable generated artifacts, not the
+mutable business record. Production will use PostgreSQL; SQLite remains a local and
+focused-test convenience.
 
-### Frontend - approved stack, visual direction pending
+### Frontend - current phase
 
 - React 19, TypeScript, and Vite.
-- React Router for application routes.
-- TanStack Query for server state.
-- React Hook Form and Zod for accessible dynamic forms.
-- Mock Service Worker with deterministic fixtures and local persistence during the
-  frontend-first phase.
-- Vitest, Testing Library, and Playwright.
-- Caddy serving the production bundle and proxying `/api` to FastAPI on Railway.
+- React Router for protected layouts and URL-addressable workflows.
+- TanStack Query for asynchronous mock/API state and cache invalidation.
+- React Hook Form and Zod for dynamic line-item forms and boundary validation.
+- Mock Service Worker for a network-realistic, replaceable REST boundary.
+- Phosphor icons with text labels for consequential actions.
+- Bundled Manrope and Newsreader variable fonts, avoiding runtime font requests.
+- Vitest, Testing Library, jest-dom, user-event, and jsdom for behavior-focused tests.
+- The approved **Option 1 evolution**: an editorial financial workspace with
+  high-density data where needed, quiet paper-like surfaces, and restrained accents.
+
+These libraries have deliberately separate jobs. They do not calculate authoritative
+totals or create a second domain layer in React. See
+[ADR 0002](docs/decisions/0002-react-vite-mock-first.md) and the
+[frontend design brief](docs/frontend-design-brief.md).
 
 ### Backend - planned
 
@@ -63,45 +86,67 @@ convenience.
 - Private S3-compatible storage with short-lived authorized downloads.
 
 See [architecture](docs/architecture.md), the
-[frontend design brief](docs/frontend-design-brief.md), and the
-[decision log](docs/decisions/README.md) for the reasoning behind these choices.
+[decision log](docs/decisions/README.md), and the
+[product-pattern research](docs/research/frontend-product-patterns.md).
 
 ## Repository layout
 
 ```text
 .
 ├── apps/
-│   ├── api/          # FastAPI service boundary; documentation only today
-│   └── web/          # React service boundary; documentation only today
+│   ├── api/          # FastAPI service boundary; not implemented yet
+│   └── web/          # React frontend and mock API
 ├── docs/
 │   ├── decisions/    # Architecture decision records
+│   ├── research/     # First-party product-pattern evidence
 │   ├── architecture.md
 │   └── frontend-design-brief.md
-├── AGENTS.md         # Rules for coding agents and contributors
+├── AGENTS.md         # Repository-wide rules for agents and contributors
 ├── CONTRIBUTING.md
 └── README.md
 ```
 
-## Running the project
+## Run the frontend
 
-There is intentionally nothing runnable at this design checkpoint. No dependency
-manifest or placeholder application is committed because that would imply an
-implementation before design approval.
+Prerequisites: a current Node.js LTS release and npm.
 
-Once the selected frontend direction is approved, this section will contain only
-commands verified from a clean clone, including:
+```bash
+cd apps/web
+npm ci
+npm run dev
+```
 
-1. prerequisites and environment setup;
-2. mocked frontend development and tests;
-3. API, migrations, and local database setup;
-4. end-to-end development; and
-5. Railway deployment.
+The web manifest currently defines these checks:
 
-## Calculation policy to implement
+```bash
+npm run test
+npm run typecheck
+npm run lint
+npm run build
+npm run test:sites
+```
+
+The frontend implementation handoff on 2026-08-10 passed test, typecheck, lint,
+production build, and Sites packaging checks. Backend setup, migrations, end-to-end
+startup, and live Railway verification remain pending implementation.
+
+## Mock-first contract
+
+The frontend talks to Mock Service Worker handlers rather than importing fixtures
+inside components. The mock boundary models latency, authentication, ownership,
+validation, draft/finalized conflicts, reports, and server-shaped decimal-string
+totals. Deterministic fixtures include the assignment reference document and an
+isolated second tenant.
+
+When FastAPI exists, its OpenAPI schema becomes the contract source of truth. A
+conformance pass will compare status codes, error envelopes, field names, decimal
+serialization, and lifecycle behavior before the mock is retired.
+
+## Calculation policy
 
 All values enter and leave the API as fixed decimal strings. Binary floating point
-is forbidden for authoritative calculations. For each line, round monetary
-components to two decimal places using `ROUND_HALF_UP`:
+is forbidden for authoritative calculations. For each line, monetary components are
+rounded to two decimal places using `ROUND_HALF_UP`:
 
 1. `subtotal = round(quantity x unit_price)`
 2. `discount = fixed_amount` or `round(subtotal x percent / 100)`
@@ -109,10 +154,11 @@ components to two decimal places using `ROUND_HALF_UP`:
 4. `tax = round(after_discount x tax_percent / 100)`
 5. `line_total = after_discount + tax`
 
-Document totals are sums of the already-rounded line values. A fixed discount
-greater than the line subtotal is rejected rather than clamped.
+Document totals sum the already-rounded line values. A fixed discount greater than
+the line subtotal is rejected rather than clamped. During the frontend-only phase,
+the mock service reproduces this policy; FastAPI will become authoritative.
 
-The assignment's reference document must produce:
+The assignment reference must produce:
 
 | Total | Amount |
 | --- | ---: |
@@ -123,30 +169,35 @@ The assignment's reference document must produce:
 
 ## Document lifecycle
 
-- New documents are always drafts.
+- New documents are drafts.
 - Only drafts may change metadata, ordering, or line items.
 - Finalization recalculates and validates the entire document server-side.
 - A finalized document cannot be edited or deleted through normal CRUD endpoints.
 - Duplication creates new IDs and a new draft; it never reopens the source.
 - Artifact access is authorized by the API before a short-lived download is issued.
 
-## Assumptions
+## Deployment intent
+
+The monorepo is intended for two independently built Railway services plus Railway
+PostgreSQL. The frontend will serve its production bundle and route API traffic to
+FastAPI; the API alone will receive database and S3 credentials. Railway services,
+domains, environment values, health checks, and live URLs are not configured yet.
+
+## Assumptions and production follow-ups
 
 - Report date bounds are inclusive and default to all document statuses.
 - Currency is stored per document; the first UI iteration displays USD.
 - Quantity supports up to four decimal places; money and rates accept two.
 - A draft may be empty, but finalization requires at least one valid line.
-- Production uses PostgreSQL and S3; Railway's ephemeral filesystem is not storage.
+- Railway's ephemeral filesystem is never durable document storage.
 
-## Before production
-
-Add refresh-token rotation or server sessions, CSRF protection where applicable,
-optimistic concurrency, a durable artifact outbox, audit events, structured tracing,
-rate limiting, database backups, S3 lifecycle/versioning, security scanning, and
-load/accessibility testing.
+Before production, add hardened session management, CSRF protection where
+applicable, optimistic concurrency, a durable artifact outbox, audit events,
+structured tracing, rate limiting, backups, S3 lifecycle/versioning, security
+scanning, and measured load/accessibility budgets.
 
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md) before making changes and follow
-[CONTRIBUTING.md](CONTRIBUTING.md). Do not begin frontend implementation until the
-selected visual direction is explicitly approved.
+[CONTRIBUTING.md](CONTRIBUTING.md). The selected Option 1 direction is approved for
+frontend work; backend implementation remains a separate phase.

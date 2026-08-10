@@ -77,5 +77,6 @@ exact deployment commands will be added and verified with the implementation.
 
 ## Known pre-implementation choices
 
-See the ADR index for status and consequences. Visual hierarchy and detailed frontend
-interaction patterns remain intentionally open until the user selects a design.
+See the ADR index for status and consequences. The evolved Option 1 editorial
+workspace is the approved frontend direction; backend contracts remain subject to
+the planned conformance pass.

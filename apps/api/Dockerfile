@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.11-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.11.32-python3.12-trixie-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,11 +9,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 
-COPY alembic.ini ./
+COPY README.md alembic.ini ./
 COPY alembic ./alembic
 COPY src ./src
+RUN uv sync --locked --no-dev --no-editable
 
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn pricing_api.main:app --host :: --port ${PORT:-8000}"]

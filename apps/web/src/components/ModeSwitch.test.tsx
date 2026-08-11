@@ -60,10 +60,10 @@ describe("ModeSwitch", () => {
     expect(darkButton).toHaveAttribute("title", "Use dark mode");
     expect(lightButton).toHaveTextContent("");
     expect(darkButton).toHaveTextContent("");
-    expect(lightButton.querySelector("svg")).toHaveAttribute("width", "15");
-    expect(lightButton.querySelector("svg")).toHaveAttribute("height", "15");
-    expect(darkButton.querySelector("svg")).toHaveAttribute("width", "15");
-    expect(darkButton.querySelector("svg")).toHaveAttribute("height", "15");
+    expect(lightButton.querySelector("svg")).toHaveAttribute("width", "12");
+    expect(lightButton.querySelector("svg")).toHaveAttribute("height", "12");
+    expect(darkButton.querySelector("svg")).toHaveAttribute("width", "12");
+    expect(darkButton.querySelector("svg")).toHaveAttribute("height", "12");
 
     await interaction.click(darkButton);
 

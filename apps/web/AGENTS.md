@@ -10,6 +10,6 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 Use `public/pricing-desk-mark.svg` through the shared `BrandMark` component for every
 product-brand placement; do not reintroduce text initials as a substitute logo. Keep
-Light/Dark glyphs visually restrained at 15px inside accessible 40–44px hit targets.
+Light/Dark glyphs visually restrained at 12px inside accessible 40–44px hit targets.
 Signup must visibly state and enforce the backend-aligned eight-character password
 minimum.

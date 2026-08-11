@@ -10,7 +10,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { BrandMark } from "../components/BrandMark";
 import { signUp } from "../lib/api";
+
+const MIN_PASSWORD_LENGTH = 8;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "We could not create your workspace. Please try again.";
@@ -39,7 +42,7 @@ export function SignupPage() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!email.trim() || password.length < 12) return;
+    if (!email.trim() || password.length < MIN_PASSWORD_LENGTH) return;
     signUpMutation.mutate();
   }
 
@@ -47,7 +50,7 @@ export function SignupPage() {
     <main className="login-page">
       <section className="login-story" aria-labelledby="signup-story-title">
         <div className="login-brand" aria-label="Pricing Desk">
-          <span aria-hidden="true">PD</span>
+          <BrandMark className="login-logo" />
           <strong>Pricing Desk</strong>
         </div>
 
@@ -71,7 +74,7 @@ export function SignupPage() {
         <div className="login-form-wrap">
           <p className="ancillary-eyebrow">Create workspace</p>
           <h2 id="signup-title">Set up your desk</h2>
-          <p className="login-intro">A name and workspace label are optional; your email and a 12-character password are required.</p>
+          <p className="login-intro">A name and workspace label are optional; your email and a password are required.</p>
 
           <form className="login-form" onSubmit={submit} noValidate>
             <label htmlFor="signup-name">Your name <small>Optional</small></label>
@@ -95,12 +98,13 @@ export function SignupPage() {
             <label htmlFor="signup-password">Password</label>
             <div className="login-input-wrap">
               <LockKey size={20} aria-hidden="true" />
-              <input id="signup-password" name="password" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required aria-invalid={signUpMutation.isError || undefined} />
+              <input id="signup-password" name="password" type="password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} value={password} onChange={(event) => setPassword(event.target.value)} required aria-describedby="signup-password-hint" aria-invalid={signUpMutation.isError || undefined} />
             </div>
+            <p className="login-field-hint" id="signup-password-hint">Use at least 8 characters.</p>
 
             {signUpMutation.isError ? <p className="ancillary-error-inline" role="alert">{errorMessage(signUpMutation.error)}</p> : null}
 
-            <button className="ancillary-button ancillary-button-primary login-submit" type="submit" disabled={signUpMutation.isPending || !email.trim() || password.length < 12}>
+            <button className="ancillary-button ancillary-button-primary login-submit" type="submit" disabled={signUpMutation.isPending || !email.trim() || password.length < MIN_PASSWORD_LENGTH}>
               {signUpMutation.isPending ? <><SpinnerGap className="ancillary-spinner" size={20} aria-hidden="true" />Creating workspace…</> : <>
                 Create workspace <ArrowRight size={20} aria-hidden="true" />
               </>}

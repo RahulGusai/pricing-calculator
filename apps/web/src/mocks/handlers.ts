@@ -103,8 +103,8 @@ export const handlers = [
     await simulateLatency();
     try {
       const body = await jsonBody<{ email?: string; password?: string }>(request);
-      if (!body.email || !body.password || body.password.length < 12) {
-        throw new MockApiError(422, "VALIDATION_ERROR", "Email and a 12-character password are required.");
+      if (!body.email || !body.password || body.password.length < 8) {
+        throw new MockApiError(422, "VALIDATION_ERROR", "Email and an 8-character password are required.");
       }
       // Explicit mock mode has one deterministic owner; production signup is FastAPI-backed.
       return HttpResponse.json(mockStore.startSession(mockStore.authenticate(

@@ -3,6 +3,7 @@ import { forwardRef } from "react";
 
 import { formatDate, formatMoney } from "../lib/format";
 import type { PricingDocument } from "../types";
+import { BrandMark } from "./BrandMark";
 
 export const DocumentPreviewDialog = forwardRef<
   HTMLDialogElement,
@@ -31,7 +32,10 @@ export const DocumentPreviewDialog = forwardRef<
       <article className="preview-paper">
         <header>
           <div>
-            <span className="preview-brand">Pricing Desk</span>
+            <span className="preview-brand">
+              <BrandMark className="preview-logo" />
+              <span>Pricing Desk</span>
+            </span>
             <h2>{document.title}</h2>
           </div>
           <div className="preview-meta">

@@ -60,6 +60,10 @@ describe("ModeSwitch", () => {
     expect(darkButton).toHaveAttribute("title", "Use dark mode");
     expect(lightButton).toHaveTextContent("");
     expect(darkButton).toHaveTextContent("");
+    expect(lightButton.querySelector("svg")).toHaveAttribute("width", "15");
+    expect(lightButton.querySelector("svg")).toHaveAttribute("height", "15");
+    expect(darkButton.querySelector("svg")).toHaveAttribute("width", "15");
+    expect(darkButton.querySelector("svg")).toHaveAttribute("height", "15");
 
     await interaction.click(darkButton);
 
@@ -99,5 +103,9 @@ describe("ModeSwitch", () => {
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.getByText("Avery Morgan")).toBeInTheDocument();
+    expect(accountArea?.closest(".app-shell")?.querySelector(".workspace-logo")).toHaveAttribute(
+      "src",
+      "/pricing-desk-mark.svg",
+    );
   });
 });

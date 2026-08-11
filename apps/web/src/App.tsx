@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
+import { BrandMark } from "./components/BrandMark";
 import { getSession, setSessionExpiredHandler } from "./lib/api";
 
 const LoginPage = lazy(() =>
@@ -24,7 +25,7 @@ const ReportsPage = lazy(() =>
 function LoadingScreen() {
   return (
     <div className="route-loading" role="status" aria-live="polite">
-      <span className="loading-mark">PD</span>
+      <BrandMark className="loading-logo" />
       <p>Opening Pricing Desk…</p>
     </div>
   );

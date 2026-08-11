@@ -4,6 +4,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { signOut } from "../lib/api";
 import type { User } from "../types";
+import { BrandMark } from "./BrandMark";
 import { ModeSwitch } from "./ModeSwitch";
 
 export function AppShell({ user }: { user: User }) {
@@ -21,9 +22,7 @@ export function AppShell({ user }: { user: User }) {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="workspace-mark">
-          <span className="workspace-avatar" aria-hidden="true">
-            NL
-          </span>
+          <BrandMark className="workspace-logo" />
           <span className="workspace-name">{user.workspaceName}</span>
         </div>
 

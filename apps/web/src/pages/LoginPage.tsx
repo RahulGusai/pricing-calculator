@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
+import { BrandMark } from "../components/BrandMark";
 import { getSession, signIn } from "../lib/api";
 
 function errorMessage(error: unknown) {
@@ -55,7 +56,7 @@ export function LoginPage() {
     <main className="login-page">
       <section className="login-story" aria-labelledby="login-story-title">
         <div className="login-brand" aria-label="Pricing Desk">
-          <span aria-hidden="true">PD</span>
+          <BrandMark className="login-logo" />
           <strong>Pricing Desk</strong>
         </div>
 

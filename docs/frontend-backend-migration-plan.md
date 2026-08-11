@@ -318,7 +318,7 @@ belonging to another user returns the same `404` envelope as a nonexistent resou
 | --- | --- | --- | --- |
 | `GET /health` | — | `200 { "status": "ok" }` | Operational endpoint; the SPA does not use it for authentication. |
 | `GET /api/v1/config/currencies` | — | `200 CurrencyConfigResponse` | Public, cacheable configuration. |
-| `POST /api/v1/auth/signup` | `{ email, password, name?, workspaceName? }`; password is 12–256 characters | `201 SessionResponse` plus session cookie | `422 VALIDATION_ERROR` for fields; no access token in JSON. |
+| `POST /api/v1/auth/signup` | `{ email, password, name?, workspaceName? }`; password is 8–256 characters | `201 SessionResponse` plus session cookie | `422 VALIDATION_ERROR` for fields; no access token in JSON. |
 | `POST /api/v1/auth/login` | `{ email, password }` | `200 SessionResponse` plus session cookie | `401 INVALID_CREDENTIALS`; no access token in JSON. |
 | `GET /api/v1/auth/session` | cookie only | `200 SessionResponse` | `401 AUTHENTICATION_REQUIRED`; client clears in-memory CSRF/session state and treats it as signed out. |
 | `POST /api/v1/auth/logout` | CSRF header, cookie | `204 No Content`, clears cookie | `401` when no session; `403 CSRF_VALIDATION_FAILED` for absent/invalid CSRF token. |

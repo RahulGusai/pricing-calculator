@@ -27,7 +27,7 @@ export function ModeSwitch() {
           title={`Use ${label.toLowerCase()} mode`}
           onClick={() => setMode(value)}
         >
-          <Icon aria-hidden="true" size={18} weight={mode === value ? "fill" : "regular"} />
+          <Icon aria-hidden="true" size={15} weight={mode === value ? "fill" : "regular"} />
         </button>
       ))}
     </div>

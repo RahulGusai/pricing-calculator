@@ -171,9 +171,7 @@ select:disabled {
   border-bottom: 1px solid var(--border);
 }
 
-.workspace-avatar,
-.account-avatar,
-.loading-mark {
+.account-avatar {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
@@ -182,12 +180,16 @@ select:disabled {
   letter-spacing: -0.02em;
 }
 
-.workspace-avatar {
+.brand-mark {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.workspace-logo {
   width: 40px;
   height: 40px;
-  border-radius: 5px;
-  background: var(--accent-strong);
-  color: var(--accent-contrast);
+  border-radius: 9px;
 }
 
 .workspace-name {
@@ -298,12 +300,10 @@ select:disabled {
   padding: 32px;
 }
 
-.loading-mark {
+.loading-logo {
   width: 48px;
   height: 48px;
-  border-radius: 7px;
-  color: var(--accent-contrast);
-  background: var(--accent-strong);
+  border-radius: 11px;
   animation: breathe 1.4s ease-in-out infinite;
 }
 
@@ -1403,11 +1403,20 @@ dialog::backdrop {
 }
 
 .preview-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: #0c6a42;
   font-size: 13px;
   font-weight: 760;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.preview-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
 }
 
 .preview-paper h2 {

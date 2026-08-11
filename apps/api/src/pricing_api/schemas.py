@@ -39,7 +39,7 @@ class AuthResponse(ApiModel):
 
 class SignupRequest(ApiModel):
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=12, max_length=256)
+    password: str = Field(min_length=8, max_length=256)
     name: str | None = Field(default=None, max_length=120)
     workspaceName: str | None = Field(default=None, max_length=120)
 

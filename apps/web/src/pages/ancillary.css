@@ -53,20 +53,22 @@
   letter-spacing: -0.01em;
 }
 
-.login-brand > span {
-  display: grid;
+.login-logo {
   width: 2.65rem;
-  aspect-ratio: 1;
-  place-items: center;
-  border: 1px solid rgb(255 255 255 / 45%);
-  border-radius: 0.55rem;
-  font-family: var(--font-display, "Source Serif 4 Variable", "Source Serif 4", Georgia, serif);
-  font-size: 1rem;
+  height: 2.65rem;
+  border-radius: 0.6rem;
 }
 
 .login-brand strong {
   font-size: 1.05rem;
   font-weight: 650;
+}
+
+.login-field-hint {
+  margin: 0.4rem 0 0;
+  color: var(--text-muted, #69736d);
+  font-size: 0.8125rem;
+  line-height: 1.45;
 }
 
 .login-story-copy {

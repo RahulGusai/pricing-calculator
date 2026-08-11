@@ -89,6 +89,21 @@ def test_credentialed_cors_allows_only_the_configured_development_origin(
     assert response.headers["access-control-allow-credentials"] == "true"
 
 
+def test_signup_requires_an_eight_character_password(client: TestClient) -> None:
+    too_short = client.post(
+        "/api/v1/auth/signup",
+        json={"email": "short@example.com", "password": "1234567"},
+    )
+    assert too_short.status_code == 422
+    assert "password" in too_short.json()["error"]["fields"]
+
+    accepted = client.post(
+        "/api/v1/auth/signup",
+        json={"email": "eight@example.com", "password": "12345678"},
+    )
+    assert accepted.status_code == 201
+
+
 def test_cookie_session_requires_csrf_for_mutations(client: TestClient) -> None:
     auth, csrf_headers = signup(client)
     assert "accessToken" not in auth
@@ -132,6 +147,9 @@ def test_openapi_exposes_the_versioned_document_contract(client: TestClient) -> 
     assert schema["components"]["schemas"]["LineWriteRequest"]["properties"][
         "description"
     ]["maxLength"] == 240
+    assert schema["components"]["schemas"]["SignupRequest"]["properties"][
+        "password"
+    ]["minLength"] == 8
 
 
 def test_document_calculation_lifecycle_duplicate_and_delete(client: TestClient) -> None:

@@ -101,12 +101,6 @@ describe("fixed-point pricing", () => {
     expect(result.totals.grandTotal).toBe("0.22");
   });
 
-  it("rounds a fractional-quantity subtotal half up", () => {
-    expect(
-      calculateLine(line({ quantity: "1.05", unitPrice: "0.10" })).subtotal,
-    ).toBe("0.11");
-  });
-
   it("applies tax to the discounted amount", () => {
     const result = calculateLine(
       line({
@@ -135,7 +129,8 @@ describe("fixed-point pricing", () => {
   });
 
   it.each([
-    ["quantity", { quantity: "0.9999" }],
+    ["fractional quantity", { quantity: "1.5" }],
+    ["zero quantity", { quantity: "0" }],
     ["money precision", { unitPrice: "1.001" }],
     ["rate precision", { taxRate: "5.001" }],
     ["negative money", { unitPrice: "-1.00" }],

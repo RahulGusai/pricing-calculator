@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import selectinload
@@ -25,7 +25,6 @@ from pricing_api.pricing import (
     LineInput,
     LineTotals,
     PricingValidationError,
-    calculate_document,
     calculate_line,
     format_money,
     format_quantity,
@@ -121,7 +120,7 @@ def _line_response(line: LineItem) -> LineResponse:
         position=line.position,
         name=line.name,
         description=line.description,
-        quantity=format_quantity(line.quantity_scaled),
+        quantity=format_quantity(line.quantity),
         unitPrice=format_money(line.unit_price_minor),
         discountType=DiscountType(line.discount_type),
         discountValue=discount_value,
@@ -248,7 +247,7 @@ def _line_input_from_model(line: LineItem) -> LineInput:
         else format_money(line.discount_value_scaled)
     )
     return LineInput(
-        quantity=format_quantity(line.quantity_scaled),
+        quantity=format_quantity(line.quantity),
         unit_price=format_money(line.unit_price_minor),
         discount_type=line.discount_type,
         discount_value=discount_value,
@@ -257,7 +256,25 @@ def _line_input_from_model(line: LineItem) -> LineInput:
 
 
 def _calculate_models(lines: Iterable[LineItem]) -> CalculatedDocument:
-    return calculate_document(_line_input_from_model(line) for line in lines)
+    """Revalidate persisted inputs, preserving their line index in any error."""
+
+    calculated: list[CalculatedLine] = []
+    for index, line in enumerate(lines):
+        try:
+            calculated.append(calculate_line(_line_input_from_model(line)))
+        except PricingValidationError as error:
+            raise PricingValidationError(
+                f"lines.{index}.{error.field}",
+                str(error),
+            ) from error
+
+    totals = LineTotals(
+        subtotal_minor=sum(line.totals.subtotal_minor for line in calculated),
+        discount_minor=sum(line.totals.discount_minor for line in calculated),
+        tax_minor=sum(line.totals.tax_minor for line in calculated),
+        grand_total_minor=sum(line.totals.grand_total_minor for line in calculated),
+    )
+    return CalculatedDocument(lines=tuple(calculated), totals=totals)
 
 
 def _apply_totals(document: Document, totals: LineTotals) -> None:
@@ -276,7 +293,7 @@ def _apply_calculated_line(
     target.position = position
     target.name = request.name.strip()
     target.description = request.description.strip()
-    target.quantity_scaled = calculated.quantity_scaled
+    target.quantity = calculated.quantity
     target.unit_price_minor = calculated.unit_price_minor
     target.discount_type = calculated.discount_type.value
     target.discount_value_scaled = calculated.discount_value_scaled
@@ -444,7 +461,7 @@ def duplicate_document(db: DbSession, owner: User, document_id: str) -> Document
             position=source_line.position,
             name=source_line.name,
             description=source_line.description,
-            quantity_scaled=source_line.quantity_scaled,
+            quantity=source_line.quantity,
             unit_price_minor=source_line.unit_price_minor,
             discount_type=source_line.discount_type,
             discount_value_scaled=source_line.discount_value_scaled,
@@ -497,7 +514,7 @@ def finalize_document(
         ) from error
     _apply_totals(document, calculated.totals)
     for target, calculated_line in zip(document.line_items, calculated.lines, strict=True):
-        target.quantity_scaled = calculated_line.quantity_scaled
+        target.quantity = calculated_line.quantity
         target.unit_price_minor = calculated_line.unit_price_minor
         target.discount_type = calculated_line.discount_type.value
         target.discount_value_scaled = calculated_line.discount_value_scaled
@@ -521,7 +538,6 @@ def report_summary(
     start_date: date,
     end_date: date,
     status: str,
-    customer: str,
 ) -> ReportResponse:
     if start_date > end_date:
         raise ApiError(
@@ -537,9 +553,6 @@ def report_summary(
     )
     if status != "all":
         query = query.where(Document.status == status)
-    customer_normalized = customer.strip().lower()
-    if customer_normalized:
-        query = query.where(func.lower(Document.customer_name).contains(customer_normalized))
     documents = list(
         db.scalars(query.order_by(Document.document_date.desc(), Document.updated_at.desc())).all()
     )
@@ -562,7 +575,6 @@ def report_summary(
         startDate=start_date,
         endDate=end_date,
         status=status,  # type: ignore[arg-type]
-        customer=customer,
         documentCount=len(documents),
         currencyTotals=currency_totals,
         documents=[document_summary_response(document) for document in documents],

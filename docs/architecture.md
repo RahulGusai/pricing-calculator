@@ -73,7 +73,8 @@ uses the browser print dialog. The API does not create files or download URLs.
 - Scope repository queries by owner, returning `404` for inaccessible IDs.
 - Accept no client-controlled totals, status transitions, or owner IDs.
 - Keep secrets server-side and explicitly enumerate allowed public configuration.
-- Validate decimal precision, bounds, identifiers, and date range ordering.
+- Validate money/rate decimal precision, whole-number quantity bounds, identifiers, and
+  date range ordering.
 
 ## Deployment topology
 

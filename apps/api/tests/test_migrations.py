@@ -22,6 +22,9 @@ def test_initial_migration_upgrades_and_downgrades_sqlite(tmp_path, monkeypatch)
         inspect(engine).get_table_names()
     )
     assert "artifacts" not in inspect(engine).get_table_names()
+    line_item_columns = {column["name"] for column in inspect(engine).get_columns("line_items")}
+    assert "quantity" in line_item_columns
+    assert "quantity_scaled" not in line_item_columns
     command.downgrade(config, "base")
     assert inspect(engine).get_table_names() == ["alembic_version"]
     engine.dispose()

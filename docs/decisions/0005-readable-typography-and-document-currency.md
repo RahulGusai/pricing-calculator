@@ -41,8 +41,9 @@ The UI gains a calmer, more legible hierarchy and a consistent metadata rhythm a
 desktop and mobile. Two bundled variable fonts add no third-party runtime request.
 The FastAPI contract validates enabled currency codes, persists currency on the
 document, keeps finalized currency immutable, and returns currency-separated report
-aggregates. Its pricing module stores money as integer minor units and quantity/rates
-as integers scaled by 100, rounding each line component half up.
+aggregates. Its pricing module stores money as integer minor units, quantity as a
+positive whole integer, and rates as integers scaled by 100, rounding each line
+component half up.
 
 ## Revisit triggers
 

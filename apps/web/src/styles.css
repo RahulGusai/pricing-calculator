@@ -613,6 +613,25 @@ select:disabled {
   cursor: pointer;
 }
 
+.editor-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  width: min(320px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--border));
+  border-radius: 7px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .editor-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 332px;
@@ -736,6 +755,31 @@ select:disabled {
   font-weight: 590;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.select-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.select-control select {
+  appearance: none;
+  padding-right: 38px !important;
+  cursor: pointer;
+}
+
+.select-control svg {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  pointer-events: none;
+  color: var(--text-muted);
+  transform: translateY(-50%);
+}
+
+.select-control:focus-within svg {
+  color: var(--accent-strong);
 }
 
 .document-meta input:hover,

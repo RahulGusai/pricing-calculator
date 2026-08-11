@@ -22,7 +22,7 @@ def line(**overrides: str) -> LineInput:
     """Return a valid, zero-money line that tests can override selectively."""
 
     values: dict[str, str] = {
-        "quantity": "1.00",
+        "quantity": "1",
         "unit_price": "0.00",
         "discount_type": "none",
         "discount_value": "0.00",
@@ -33,10 +33,10 @@ def line(**overrides: str) -> LineInput:
 
 
 class FixedPointParsingTests(unittest.TestCase):
-    def test_scales_two_decimal_input_strings_to_integers(self) -> None:
+    def test_parses_money_and_rates_as_scaled_integers_but_quantity_as_whole_units(self) -> None:
         self.assertEqual(parse_money("19.99"), 1_999)
         self.assertEqual(parse_money("19.9"), 1_990)
-        self.assertEqual(parse_quantity("3.00"), 300)
+        self.assertEqual(parse_quantity("3"), 3)
         self.assertEqual(parse_rate("12.50"), 1_250)
         self.assertEqual(format_money(1_999), "19.99")
 
@@ -45,8 +45,9 @@ class FixedPointParsingTests(unittest.TestCase):
             (parse_money, "-0.01"),
             (parse_money, "10.001"),
             (parse_money, "1e2"),
-            (parse_quantity, "0.99"),
-            (parse_quantity, "1.001"),
+            (parse_quantity, "0"),
+            (parse_quantity, "1.0"),
+            (parse_quantity, "-1"),
             (parse_rate, "100.01"),
             (parse_rate, "5.001"),
         )
@@ -65,7 +66,7 @@ class PricingCalculationTests(unittest.TestCase):
         result = calculate_document(
             (
                 line(
-                    quantity="2.00",
+                    quantity="2",
                     unit_price="100.00",
                     discount_type="percentage",
                     discount_value="10.00",
@@ -117,7 +118,7 @@ class PricingCalculationTests(unittest.TestCase):
     def test_usd_example_uses_line_subtotal_for_discount_then_tax(self) -> None:
         result = calculate_line(
             line(
-                quantity="3.00",
+                quantity="3",
                 unit_price="19.99",
                 discount_type="percentage",
                 discount_value="12.50",
@@ -140,10 +141,6 @@ class PricingCalculationTests(unittest.TestCase):
         )
 
     def test_rounds_subtotal_discount_and_tax_half_up(self) -> None:
-        # 1.05 x 0.10 = 10.5 cents, which rounds to 11 cents.
-        subtotal = calculate_line(line(quantity="1.05", unit_price="0.10"))
-        self.assertEqual(subtotal.subtotal, "0.11")
-
         # 10 cents x 5% = 0.5 cents, which rounds up to 1 cent.
         tax = calculate_line(line(unit_price="0.10", tax_rate="5.00"))
         self.assertEqual(tax.tax, "0.01")
@@ -188,22 +185,22 @@ class PricingCalculationTests(unittest.TestCase):
     def test_rejects_fixed_discount_larger_than_the_rounded_subtotal(self) -> None:
         accepted = calculate_line(
             line(
-                quantity="1.05",
+                quantity="1",
                 unit_price="0.10",
                 discount_type="fixed",
-                discount_value="0.11",
+                discount_value="0.10",
             )
         )
-        self.assertEqual(accepted.subtotal, "0.11")
-        self.assertEqual(accepted.discount, "0.11")
+        self.assertEqual(accepted.subtotal, "0.10")
+        self.assertEqual(accepted.discount, "0.10")
 
         with self.assertRaises(PricingValidationError) as context:
             calculate_line(
                 line(
-                    quantity="1.05",
+                    quantity="1",
                     unit_price="0.10",
                     discount_type="fixed",
-                    discount_value="0.12",
+                    discount_value="0.11",
                 )
             )
 
@@ -228,20 +225,20 @@ class PricingCalculationTests(unittest.TestCase):
     def test_line_total_algebra_holds_for_each_calculated_line(self) -> None:
         inputs = (
             line(
-                quantity="2.25",
+                quantity="2",
                 unit_price="11.11",
                 discount_type="percentage",
                 discount_value="12.50",
                 tax_rate="8.25",
             ),
             line(
-                quantity="1.05",
+                quantity="1",
                 unit_price="0.10",
                 discount_type="fixed",
                 discount_value="0.01",
                 tax_rate="5.00",
             ),
-            line(quantity="1.00", unit_price="25.55", tax_rate="18.00"),
+            line(quantity="1", unit_price="25.55", tax_rate="18.00"),
         )
 
         for input_line in inputs:

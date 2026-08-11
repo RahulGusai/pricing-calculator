@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowLeft,
   CalendarBlank,
+  CaretDown,
   Check,
   CheckCircle,
   Copy,
@@ -48,6 +49,8 @@ import {
 
 const decimalPattern = /^\d+(?:\.\d{0,2})?$/;
 const decimalEntryPattern = /^\d*(?:\.\d{0,2})?$/;
+const wholeNumberPattern = /^\d+$/;
+const wholeNumberEntryPattern = /^\d*$/;
 const DESCRIPTION_MAX_LENGTH = 240;
 
 function toScaledDecimal(value: string): bigint {
@@ -58,8 +61,11 @@ function toScaledDecimal(value: string): bigint {
 
 const quantitySchema = z
   .string()
-  .regex(decimalPattern, "Enter a valid quantity")
-  .refine((value) => toScaledDecimal(value) >= 100n, "Quantity must be at least 1.00");
+  .regex(wholeNumberPattern, "Enter a whole number")
+  .refine(
+    (value) => !wholeNumberPattern.test(value) || BigInt(value) >= 1n,
+    "Quantity must be at least 1",
+  );
 const moneySchema = z.string().regex(decimalPattern, "Enter a valid amount");
 const rateSchema = moneySchema.refine(
   (value) => toScaledDecimal(value) <= 10_000n,
@@ -139,7 +145,7 @@ function toUpdateInput(values: DocumentFormValues): UpdateDocumentInput {
       ...(line.id ? { id: line.id } : {}),
       name: line.name.trim(),
       description: line.description,
-      quantity: normalizeDecimal(line.quantity),
+      quantity: line.quantity,
       unitPrice: normalizeDecimal(line.unitPrice),
       discountType: line.discountType,
       discountValue: normalizeDecimal(line.discountValue),
@@ -152,8 +158,10 @@ function acceptDecimalEntry(
   event: ChangeEvent<HTMLInputElement>,
   currentValue: string,
   onAccepted: (event: ChangeEvent<HTMLInputElement>) => unknown,
+  onRejected?: (attemptedValue: string) => void,
 ): void {
-  if (decimalEntryPattern.test(event.currentTarget.value)) {
+  const attemptedValue = event.currentTarget.value;
+  if (decimalEntryPattern.test(attemptedValue)) {
     void onAccepted(event);
     return;
   }
@@ -161,6 +169,46 @@ function acceptDecimalEntry(
   // React Hook Form intentionally keeps these inputs uncontrolled. Restore the
   // last accepted string immediately so a third fractional digit never appears.
   event.currentTarget.value = currentValue;
+  onRejected?.(attemptedValue);
+}
+
+function acceptWholeNumberEntry(
+  event: ChangeEvent<HTMLInputElement>,
+  currentValue: string,
+  onAccepted: (event: ChangeEvent<HTMLInputElement>) => unknown,
+): void {
+  if (wholeNumberEntryPattern.test(event.currentTarget.value)) {
+    void onAccepted(event);
+    return;
+  }
+  event.currentTarget.value = currentValue;
+}
+
+function finalizationValidationMessage(values: DocumentFormValues): string | null {
+  const parsed = documentSchema.safeParse(values);
+  if (parsed.success) return null;
+
+  const issue = parsed.error.issues[0];
+  const [section, lineIndex, field] = issue.path;
+  if (section === "lines" && typeof lineIndex === "number" && typeof field === "string") {
+    const fieldLabel = {
+      name: "item name",
+      quantity: "quantity",
+      unitPrice: "unit price",
+      discountValue: "discount",
+      taxRate: "tax rate",
+    }[field] ?? field;
+    return `Line ${lineIndex + 1} ${fieldLabel}: ${issue.message}`;
+  }
+
+  const labels: Record<string, string> = {
+    title: "Document title",
+    customerName: "Customer",
+    documentDate: "Document date",
+    validUntil: "Valid until",
+    currency: "Currency",
+  };
+  return `${labels[String(section)] ?? "Document"}: ${issue.message}`;
 }
 
 function newLine(): LineWrite {
@@ -193,6 +241,8 @@ export function DocumentEditorPage() {
   const queryClient = useQueryClient();
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const previewRef = useRef<HTMLDialogElement>(null);
   const finalizeRef = useRef<HTMLDialogElement>(null);
   const deleteRef = useRef<HTMLDialogElement>(null);
@@ -281,7 +331,7 @@ export function DocumentEditorPage() {
           form.setError(field as never, { type: "server", message });
         });
       }
-      setNotice(error instanceof Error ? error.message : "Could not finalize document");
+      setFinalizeError(error instanceof Error ? error.message : "Could not finalize document");
     },
   });
 
@@ -341,6 +391,12 @@ export function DocumentEditorPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [append, fields.length, isReadOnly]);
 
+  useEffect(() => {
+    if (!toast) return;
+    const timeout = window.setTimeout(() => setToast(null), 3_500);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
+
   const saveLabel = useMemo(() => {
     if (saveMutation.isPending) return "Saving changes…";
     if (form.formState.isDirty) return "Changes pending";
@@ -350,11 +406,9 @@ export function DocumentEditorPage() {
 
   async function saveCurrent() {
     if (!form.formState.isDirty || isFinalized) return document;
-    let result: PricingDocument | undefined;
-    await form.handleSubmit(async (values) => {
-      result = await saveMutation.mutateAsync(structuredClone(values));
-    })();
-    return result;
+    const isValid = await form.trigger(undefined, { shouldFocus: false });
+    if (!isValid) return undefined;
+    return saveMutation.mutateAsync(structuredClone(form.getValues()));
   }
 
   async function openPreview() {
@@ -363,9 +417,24 @@ export function DocumentEditorPage() {
   }
 
   async function confirmFinalize() {
-    const saved = await saveCurrent();
-    if (!saved && form.formState.isDirty) return;
-    await finalizeMutation.mutateAsync();
+    const validationMessage = finalizationValidationMessage(form.getValues());
+    if (validationMessage) {
+      await form.trigger(undefined, { shouldFocus: false });
+      setFinalizeError(`Fix the highlighted fields before finalizing. ${validationMessage}`);
+      return;
+    }
+
+    setFinalizeError(null);
+    try {
+      const saved = await saveCurrent();
+      if (!saved && form.formState.isDirty) {
+        setFinalizeError("Fix the highlighted fields before finalizing.");
+        return;
+      }
+      await finalizeMutation.mutateAsync();
+    } catch (error) {
+      setFinalizeError(error instanceof Error ? error.message : "Could not finalize document");
+    }
   }
 
   function reorderLine(from: number, to: number) {
@@ -451,7 +520,10 @@ export function DocumentEditorPage() {
               type="button"
               className="button primary"
               aria-label="Finalize"
-              onClick={() => finalizeRef.current?.showModal()}
+              onClick={() => {
+                setFinalizeError(null);
+                finalizeRef.current?.showModal();
+              }}
               disabled={saveMutation.isPending || finalizeMutation.isPending}
             >
               <Check size={18} weight="bold" aria-hidden="true" />
@@ -470,6 +542,13 @@ export function DocumentEditorPage() {
           </button>
         </div>
       )}
+
+      {toast ? (
+        <div className="editor-toast" role="status" aria-live="polite">
+          <WarningCircle size={18} aria-hidden="true" />
+          <span>{toast}</span>
+        </div>
+      ) : null}
 
       <div className="editor-workspace">
         <form className="document-sheet" onSubmit={(event) => event.preventDefault()}>
@@ -539,11 +618,14 @@ export function DocumentEditorPage() {
                 {isReadOnly ? (
                   <strong>{form.getValues("currency")}</strong>
                 ) : (
-                  <select {...form.register("currency")} aria-label="Currency" disabled={currenciesQuery.isLoading}>
-                    {availableCurrencies.map((currency) => (
-                      <option key={currency.code} value={currency.code}>{currency.code}</option>
-                    ))}
-                  </select>
+                  <span className="select-control">
+                    <select {...form.register("currency")} aria-label="Currency" disabled={currenciesQuery.isLoading}>
+                      {availableCurrencies.map((currency) => (
+                        <option key={currency.code} value={currency.code}>{currency.code}</option>
+                      ))}
+                    </select>
+                    <CaretDown size={16} weight="bold" aria-hidden="true" />
+                  </span>
                 )}
                 {form.formState.errors.currency ? <small className="field-error">{form.formState.errors.currency.message}</small> : null}
               </label>
@@ -637,10 +719,11 @@ export function DocumentEditorPage() {
                     <div role="cell" data-label="Quantity">
                       {isReadOnly ? <span>{field.quantity}</span> : <>
                         <input
-                          inputMode="decimal"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           aria-label={`Line ${index + 1} quantity`}
                           {...quantityRegistration}
-                          onChange={(event) => acceptDecimalEntry(
+                          onChange={(event) => acceptWholeNumberEntry(
                             event,
                             form.getValues(`lines.${index}.quantity`),
                             quantityRegistration.onChange,
@@ -662,6 +745,11 @@ export function DocumentEditorPage() {
                               event,
                               form.getValues(`lines.${index}.unitPrice`),
                               unitPriceRegistration.onChange,
+                              (attemptedValue) => {
+                                if (attemptedValue.includes("-")) {
+                                  setToast("Negative values are not allowed.");
+                                }
+                              },
                             )}
                           />
                         </span>
@@ -785,6 +873,7 @@ export function DocumentEditorPage() {
           Finalizing locks all pricing and customer details. You can still preview, print,
           or duplicate it into a new draft.
         </p>
+        {finalizeError ? <p className="dialog-error" role="alert">{finalizeError}</p> : null}
         <dl>
           <div><dt>Document</dt><dd>{document.number}</dd></div>
           <div><dt>Grand total</dt><dd>{formatMoney(document.totals.grandTotal, document.currency)}</dd></div>

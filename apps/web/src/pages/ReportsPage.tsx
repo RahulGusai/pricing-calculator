@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   CalendarBlank,
   ChartBar,
+  CaretDown,
   Funnel,
   SpinnerGap,
 } from "@phosphor-icons/react";
@@ -18,7 +19,6 @@ interface ReportFilters {
   startDate: string;
   endDate: string;
   status: DocumentStatus | "all";
-  customer: string;
 }
 
 function localIsoDate(date: Date) {
@@ -32,7 +32,6 @@ function initialFilters(): ReportFilters {
     startDate: localIsoDate(new Date(now.getFullYear(), 0, 1)),
     endDate: localIsoDate(now),
     status: "all",
-    customer: "",
   };
 }
 
@@ -69,7 +68,7 @@ export function ReportsPage() {
       return;
     }
     setFormError(null);
-    setAppliedFilters({ ...draftFilters, customer: draftFilters.customer.trim() });
+    setAppliedFilters(draftFilters);
   }
 
   const report = reportQuery.data;
@@ -81,7 +80,7 @@ export function ReportsPage() {
           <p className="ancillary-eyebrow">Portfolio view</p>
           <h1 id="reports-title">Pricing report</h1>
           <p className="ancillary-page-lede">
-            Review document value across an inclusive date range and a precise client slice.
+            Review document value across an inclusive date range and document status.
           </p>
         </div>
         {reportQuery.isFetching && !reportQuery.isLoading ? (
@@ -135,33 +134,23 @@ export function ReportsPage() {
 
         <label htmlFor="report-status">
           <span>Status</span>
-          <select
-            id="report-status"
-            value={draftFilters.status}
-            onChange={(event) =>
-              setDraftFilters((current) => ({
-                ...current,
-                status: event.target.value as ReportFilters["status"],
-              }))
-            }
-          >
-            <option value="all">All statuses</option>
-            <option value="draft">Draft</option>
-            <option value="finalized">Finalized</option>
-          </select>
-        </label>
-
-        <label htmlFor="report-customer">
-          <span>Customer</span>
-          <input
-            id="report-customer"
-            type="search"
-            value={draftFilters.customer}
-            placeholder="All customers"
-            onChange={(event) =>
-              setDraftFilters((current) => ({ ...current, customer: event.target.value }))
-            }
-          />
+          <span className="select-control">
+            <select
+              id="report-status"
+              value={draftFilters.status}
+              onChange={(event) =>
+                setDraftFilters((current) => ({
+                  ...current,
+                  status: event.target.value as ReportFilters["status"],
+                }))
+              }
+            >
+              <option value="all">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="finalized">Finalized</option>
+            </select>
+            <CaretDown size={16} weight="bold" aria-hidden="true" />
+          </span>
         </label>
 
         <button
@@ -285,7 +274,7 @@ export function ReportsPage() {
               <div className="ancillary-state report-empty-state">
                 <ChartBar size={32} aria-hidden="true" />
                 <h3>No documents in this range</h3>
-                <p>Adjust the date, status, or customer filters and run the report again.</p>
+                <p>Adjust the date or status filters and run the report again.</p>
               </div>
             ) : (
               <div className="ancillary-table-wrap">

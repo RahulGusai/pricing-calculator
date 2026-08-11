@@ -1,9 +1,7 @@
 import type { LineItem, LineWrite, MoneyTotals } from "../types";
 
 const MONEY_DECIMALS = 2;
-const QUANTITY_DECIMALS = 2;
 const RATE_DECIMALS = 2;
-const QUANTITY_SCALE = 100n;
 const RATE_SCALE = 10_000n;
 
 export class PricingValidationError extends Error {
@@ -65,8 +63,11 @@ export function minorToMoney(value: bigint): string {
 }
 
 function parseQuantity(value: string): bigint {
-  const quantity = parseUnsignedFixed(value, QUANTITY_DECIMALS, "quantity");
-  if (quantity < QUANTITY_SCALE) {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    throw new PricingValidationError("quantity", "Quantity must be a whole number.");
+  }
+  const quantity = BigInt(value);
+  if (quantity < 1n) {
     throw new PricingValidationError(
       "quantity",
       "Quantity must be at least 1.",
@@ -83,11 +84,6 @@ function parseRate(value: string, field: string): bigint {
   return rate;
 }
 
-function normalizeQuantity(value: bigint): string {
-  const formatted = formatFixed(value, QUANTITY_DECIMALS);
-  return formatted.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
-}
-
 function normalizeRate(value: bigint): string {
   return formatFixed(value, RATE_DECIMALS);
 }
@@ -102,7 +98,7 @@ type CalculableLine = LineWrite & { id: string; position: number };
 export function calculateLine(line: CalculableLine): LineItem {
   const quantity = parseQuantity(line.quantity);
   const unitPrice = moneyToMinor(line.unitPrice, "unitPrice");
-  const subtotal = roundHalfUp(quantity * unitPrice, QUANTITY_SCALE);
+  const subtotal = quantity * unitPrice;
 
   let discount = 0n;
   let normalizedDiscountValue = "0.00";
@@ -134,7 +130,7 @@ export function calculateLine(line: CalculableLine): LineItem {
 
   return {
     ...line,
-    quantity: normalizeQuantity(quantity),
+    quantity: quantity.toString(),
     unitPrice: minorToMoney(unitPrice),
     discountValue: normalizedDiscountValue,
     taxRate: normalizeRate(taxRate),

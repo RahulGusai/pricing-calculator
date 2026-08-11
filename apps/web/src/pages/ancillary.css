@@ -686,7 +686,7 @@
 
 .report-filters {
   display: grid;
-  grid-template-columns: minmax(12rem, 1.15fr) repeat(2, minmax(9rem, 0.8fr)) minmax(9rem, 0.72fr) minmax(12rem, 1fr) auto;
+  grid-template-columns: minmax(12rem, 1.15fr) repeat(2, minmax(9rem, 0.8fr)) minmax(9rem, 0.72fr) auto;
   gap: 0.8rem;
   align-items: end;
   padding: 1rem;
@@ -732,6 +732,10 @@
   width: 100%;
   min-width: 0;
   padding-inline: 0.66rem;
+}
+
+.report-filters .select-control select {
+  padding-right: 2.3rem !important;
 }
 
 .report-filter-error {
@@ -891,7 +895,7 @@
 
 @media (max-width: 1180px) {
   .report-filters {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .report-filter-heading {
@@ -899,7 +903,7 @@
   }
 
   .report-run-button {
-    grid-column: 4;
+    grid-column: 3;
   }
 
   .report-filter-error {

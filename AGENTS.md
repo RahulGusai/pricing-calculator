@@ -18,6 +18,19 @@ rules centralized and deployment reproducible.
 - Do not present mock calculations, browser print previews, or Sites-compatible builds
   as a deployed production system.
 
+## First minute in this repository
+
+Before taking an action:
+
+1. Read this file in full, then inspect `git status` without changing unrelated work.
+2. Read the relevant service README, [architecture note](docs/architecture.md), and
+   applicable ADRs. Read [CONTRIBUTING.md](CONTRIBUTING.md) before preparing a commit
+   or review handoff.
+3. Check for a deeper `AGENTS.md` before editing a nested directory.
+4. Treat FastAPI/OpenAPI as the browser contract source of truth. After a contract
+   change, regenerate `apps/web/src/lib/generated/openapi.ts` rather than hand-editing
+   it.
+
 ## Directory ownership
 
 - `apps/web`: React UI, FastAPI adapter/OpenAPI contract, explicit mock API,
@@ -86,10 +99,11 @@ never proof of production enforcement.
 - Keep line descriptions at or below 240 characters. The editor must wrap long text,
   preserve the name/description divider while focused, and use one visible outer focus
   boundary for compound controls.
-- Let users enter each line's tax percentage directly. Decimal line inputs must prevent
-  a third fractional digit from entering form state while preserving natural partial
-  values such as `12.`; FastAPI remains authoritative for normalization, bounds,
-  pricing, and validation.
+- Let users enter each line's tax percentage directly. Money, discount, and rate
+  inputs must prevent a third fractional digit from entering form state while
+  preserving natural partial values such as `12.`. Quantity accepts positive whole
+  numbers only. FastAPI remains authoritative for normalization, bounds, pricing, and
+  validation.
 - Contain the calculation summary within the editor grid at every breakpoint. Do not
   introduce a full-width bottom surface that crosses or obscures the summary column.
 - Treat currency as immutable within each finalized document. Drafts may choose one
@@ -103,7 +117,8 @@ never proof of production enforcement.
 ## Backend standards
 
 - Use typed Pydantic request/response models and SQLAlchemy 2 style.
-- Return decimal values as strings and consistent machine-readable error envelopes.
+- Return money and rate values as decimal strings, quantities as positive whole-number
+  strings, and consistent machine-readable error envelopes.
 - Create all schema changes with Alembic; never rewrite an applied migration.
 - Production startup must fail when configured with SQLite.
 - Hash passwords with a memory-hard algorithm and keep secrets out of logs.

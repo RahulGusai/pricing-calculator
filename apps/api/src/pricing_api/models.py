@@ -1,9 +1,10 @@
 """SQLAlchemy persistence models for the pricing API.
 
 The ORM stores every authoritative financial value as an integer.  Amounts use
-the document currency's minor unit (cents, paise, or fils); quantity and
-percentage inputs use the same scale as :mod:`pricing` (100).  Decimal-string
-conversion and rounding deliberately remain in the pure pricing module.
+the document currency's minor unit (cents, paise, or fils). Quantities are
+whole integers and percentage inputs use the same scale as :mod:`pricing`
+(100). Decimal-string conversion and rounding deliberately remain in the pure
+pricing module.
 
 This module contains no request/response models, database-engine setup, or
 authorization logic.  Application services must scope document queries by
@@ -247,7 +248,7 @@ class LineItem(Base):
         ),
         CheckConstraint("position > 0", name="position_positive"),
         CheckConstraint("name <> ''", name="name_not_blank"),
-        CheckConstraint("quantity_scaled >= 100", name="quantity_at_least_one"),
+        CheckConstraint("quantity >= 1", name="quantity_at_least_one"),
         CheckConstraint("unit_price_minor >= 0", name="unit_price_nonnegative"),
         CheckConstraint(
             "discount_type IN ('none', 'fixed', 'percentage')",
@@ -294,8 +295,8 @@ class LineItem(Base):
         default="",
         server_default=text("''"),
     )
-    # Quantity uses a fixed scale of 100, e.g. 3.00 is stored as 300.
-    quantity_scaled: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Quantity is a positive whole count, e.g. 3 is stored as 3.
+    quantity: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # USD cents, INR paise, or AED fils (depending on document.currency).
     unit_price_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     discount_type: Mapped[str] = mapped_column(String(16), nullable=False)

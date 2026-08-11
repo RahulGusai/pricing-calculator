@@ -41,4 +41,12 @@ describe("ReportsPage", () => {
     expect(within(rows[1]).getByRole("rowheader", { name: "AED" })).toBeInTheDocument();
     expect(within(rows[2]).getByRole("rowheader", { name: "USD" })).toBeInTheDocument();
   });
+
+  it("uses the styled status control and has no customer report filter", async () => {
+    renderReports();
+
+    const status = await screen.findByRole("combobox", { name: "Status" });
+    expect(status.closest(".select-control")).not.toBeNull();
+    expect(screen.queryByRole("searchbox", { name: "Customer" })).not.toBeInTheDocument();
+  });
 });

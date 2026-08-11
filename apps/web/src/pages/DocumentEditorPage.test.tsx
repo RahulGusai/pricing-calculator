@@ -68,6 +68,7 @@ describe("DocumentEditorPage", () => {
 
     const currency = await screen.findByRole("combobox", { name: "Currency" });
     expect(currency).toHaveValue("USD");
+    expect(currency.closest(".select-control")).not.toBeNull();
 
     await screen.findByRole("option", { name: "INR" });
 
@@ -125,7 +126,7 @@ describe("DocumentEditorPage", () => {
     expect(updateSpy).not.toHaveBeenCalled();
   });
 
-  it("blocks a third fractional digit in every decimal editor", async () => {
+  it("requires whole quantities and blocks a third fractional digit in decimal editors", async () => {
     const user = userEvent.setup();
     renderEditor();
 
@@ -135,7 +136,8 @@ describe("DocumentEditorPage", () => {
     const tax = screen.getByRole("textbox", { name: "Line 1 tax rate" });
 
     await user.clear(quantity);
-    await user.type(quantity, "1.234");
+    await user.type(quantity, "12");
+    await user.type(quantity, ".");
     await user.clear(unitPrice);
     await user.type(unitPrice, "10.999");
     await user.clear(discount);
@@ -143,11 +145,37 @@ describe("DocumentEditorPage", () => {
     await user.clear(tax);
     await user.type(tax, "8.255");
 
-    expect(quantity).toHaveValue("1.23");
+    expect(quantity).toHaveValue("12");
     expect(unitPrice).toHaveValue("10.99");
     expect(discount).toHaveValue("7.77");
     expect(tax).toHaveValue("8.25");
     expect(screen.queryByText(/decimal places/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a bottom-right toast when a negative unit price is attempted", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    const unitPrice = await screen.findByRole("textbox", { name: "Line 1 unit price" });
+    await user.clear(unitPrice);
+    await user.type(unitPrice, "-");
+
+    expect(unitPrice).toHaveValue("");
+    expect(screen.getByRole("status")).toHaveTextContent("Negative values are not allowed.");
+  });
+
+  it("keeps finalization blocked and explains the invalid line in its dialog", async () => {
+    const user = userEvent.setup();
+    const finalizeSpy = vi.spyOn(mockStore, "finalize");
+    renderEditor();
+
+    const quantity = await screen.findByRole("textbox", { name: "Line 1 quantity" });
+    await user.clear(quantity);
+    await user.click(screen.getByRole("button", { name: "Finalize" }));
+    await user.click(screen.getByRole("button", { name: "Finalize document" }));
+
+    expect(await screen.findByText(/Line 1 quantity: Enter a whole number/)).toBeInTheDocument();
+    expect(finalizeSpy).not.toHaveBeenCalled();
   });
 
   it("accepts a manual tax percentage and autosaves it as a decimal string", async () => {

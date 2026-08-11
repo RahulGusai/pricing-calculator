@@ -121,7 +121,6 @@ describe("replaceable API boundary", () => {
       startDate: "2026-06-15",
       endDate: "2026-08-06",
       status: "all",
-      customer: "",
     });
     expect(report.documentCount).toBe(3);
     expect(report.currencyTotals.map((total) => total.currency)).toEqual([

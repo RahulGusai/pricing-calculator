@@ -26,10 +26,10 @@ contained editor:
 - Finalized documents use the normal detail view with all content editing disabled.
   Read-only behavior follows lifecycle state, not an appearance mode; confirmed
   whole-document deletion remains available in both the register and detail view.
-- Each line exposes a direct tax-percentage input. Quantity, price, discount, and tax
-  controls preserve natural partial edits such as `12.` but do not admit a third
-  fractional digit into form state. FastAPI remains authoritative for accepted bounds,
-  decimal normalization, pricing, and returned totals.
+- Each line exposes a direct tax-percentage input. Price, discount, and tax controls
+  preserve natural partial edits such as `12.` but do not admit a third fractional digit
+  into form state. Quantity accepts positive whole numbers only. FastAPI remains
+  authoritative for accepted bounds, normalization, pricing, and returned totals.
 - The calculation summary stays within the editor grid. Bottom actions or status
   surfaces must not span across or obscure the summary column, and focused line fields
   must render a complete, unclipped boundary.

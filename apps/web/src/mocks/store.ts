@@ -15,6 +15,7 @@ import {
   type OwnedPricingDocument,
 } from "./fixtures";
 import {
+  calculateLine,
   calculateDocument,
   PricingValidationError,
   sumTotals,
@@ -189,19 +190,23 @@ class MockStore {
       id: line.id || `line-generated-${index + 1}`,
       position: index + 1,
     }));
-    try {
-      return calculateDocument(normalizedLines);
-    } catch (error) {
-      if (error instanceof PricingValidationError) {
-        throw new MockApiError(
-          422,
-          "VALIDATION_ERROR",
-          "The request is invalid.",
-          { [error.field]: error.message },
-        );
+    for (const [index, line] of normalizedLines.entries()) {
+      try {
+        calculateLine(line);
+      } catch (error) {
+        if (error instanceof PricingValidationError) {
+          throw new MockApiError(
+            422,
+            "VALIDATION_ERROR",
+            "The request is invalid.",
+            { [`lines.${index}.${error.field}`]: error.message },
+          );
+        }
+        throw error;
       }
-      throw error;
     }
+
+    return calculateDocument(normalizedLines);
   }
 
   authenticate(email: string, password: string): User {
@@ -385,7 +390,6 @@ class MockStore {
     startDate: string,
     endDate: string,
     status: DocumentStatus | "all",
-    customer: string,
   ): ReportResponse {
     assertIsoDate(startDate, "startDate");
     assertIsoDate(endDate, "endDate");
@@ -397,7 +401,6 @@ class MockStore {
       );
     }
 
-    const customerQuery = customer.trim().toLocaleLowerCase();
     const documents = this.state.documents
       .filter((document) => document.ownerId === ownerId)
       .filter(
@@ -405,11 +408,6 @@ class MockStore {
           document.documentDate >= startDate && document.documentDate <= endDate,
       )
       .filter((document) => status === "all" || document.status === status)
-      .filter(
-        (document) =>
-          !customerQuery ||
-          document.customerName.toLocaleLowerCase().includes(customerQuery),
-      )
       .sort((left, right) => right.documentDate.localeCompare(left.documentDate));
     const currencies = [...new Set(documents.map((document) => document.currency))].sort();
     const currencyTotals = currencies.flatMap((currency) => {
@@ -428,7 +426,6 @@ class MockStore {
       startDate,
       endDate,
       status,
-      customer,
       documentCount: documents.length,
       currencyTotals,
       documents: documents.map(documentSummary).map(clone),

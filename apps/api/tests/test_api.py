@@ -15,7 +15,7 @@ def sample_document_payload(currency: str = "USD") -> dict:
             {
                 "name": "Widget A",
                 "description": "",
-                "quantity": "2.00",
+                "quantity": "2",
                 "unitPrice": "100.00",
                 "discountType": "percentage",
                 "discountValue": "10.00",
@@ -24,7 +24,7 @@ def sample_document_payload(currency: str = "USD") -> dict:
             {
                 "name": "Widget B",
                 "description": "",
-                "quantity": "1.00",
+                "quantity": "1",
                 "unitPrice": "50.00",
                 "discountType": "none",
                 "discountValue": "0.00",
@@ -33,7 +33,7 @@ def sample_document_payload(currency: str = "USD") -> dict:
             {
                 "name": "Service fee",
                 "description": "",
-                "quantity": "1.00",
+                "quantity": "1",
                 "unitPrice": "200.00",
                 "discountType": "fixed",
                 "discountValue": "20.00",
@@ -67,7 +67,7 @@ def test_health_and_public_currency_config(client: TestClient) -> None:
             {"code": "AED", "minorUnit": 2},
         ],
         "moneyDecimalPlaces": 2,
-        "quantityDecimalPlaces": 2,
+        "quantityDecimalPlaces": 0,
         "rateDecimalPlaces": 2,
         "roundingMode": "HALF_UP",
     }
@@ -150,6 +150,13 @@ def test_openapi_exposes_the_versioned_document_contract(client: TestClient) -> 
     assert schema["components"]["schemas"]["SignupRequest"]["properties"][
         "password"
     ]["minLength"] == 8
+    report_parameters = schema["paths"]["/api/v1/reports/summary"]["get"]["parameters"]
+    assert {parameter["name"] for parameter in report_parameters} == {
+        "startDate",
+        "endDate",
+        "status",
+    }
+    assert "customer" not in schema["components"]["schemas"]["ReportResponse"]["properties"]
 
 
 def test_document_calculation_lifecycle_duplicate_and_delete(client: TestClient) -> None:
@@ -254,7 +261,7 @@ def test_owner_scope_and_input_precision(client: TestClient, app) -> None:
                     {
                         "name": "Invalid precision",
                         "description": "",
-                        "quantity": "1.00",
+                        "quantity": "1",
                         "unitPrice": "19.999",
                         "discountType": "none",
                         "discountValue": "0.00",
@@ -267,6 +274,30 @@ def test_owner_scope_and_input_precision(client: TestClient, app) -> None:
         assert "lines.0.unitPrice" in invalid.json()["error"]["fields"]
 
     assert csrf_headers
+
+
+def test_quantity_accepts_only_positive_whole_numbers(client: TestClient) -> None:
+    _, csrf_headers = signup(client)
+    for quantity in ("0", "1.0", "1.00", "-1"):
+        response = client.post(
+            "/api/v1/documents",
+            headers=csrf_headers,
+            json={
+                "lines": [
+                    {
+                        "name": "Whole quantity only",
+                        "description": "",
+                        "quantity": quantity,
+                        "unitPrice": "10.00",
+                        "discountType": "none",
+                        "discountValue": "0.00",
+                        "taxRate": "0.00",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 422, response.text
+        assert "lines.0.quantity" in response.json()["error"]["fields"]
 
 
 def test_rejects_line_descriptions_above_240_characters(client: TestClient) -> None:
@@ -294,7 +325,7 @@ def test_rejects_blank_line_names_and_nonzero_none_discount(client: TestClient) 
                 {
                     "name": "   ",
                     "description": "",
-                    "quantity": "1.00",
+                    "quantity": "1",
                     "unitPrice": "10.00",
                     "discountType": "none",
                     "discountValue": "1.00",
@@ -314,7 +345,7 @@ def test_rejects_blank_line_names_and_nonzero_none_discount(client: TestClient) 
                 {
                     "name": "Valid name",
                     "description": "",
-                    "quantity": "1.00",
+                    "quantity": "1",
                     "unitPrice": "10.00",
                     "discountType": "none",
                     "discountValue": "1.00",
@@ -338,7 +369,7 @@ def test_report_uses_inclusive_bounds_and_returns_one_row_per_currency(client: T
         {
             "name": "Consultation",
             "description": "",
-            "quantity": "1.00",
+            "quantity": "1",
             "unitPrice": "19.99",
             "discountType": "percentage",
             "discountValue": "12.50",
@@ -358,7 +389,6 @@ def test_report_uses_inclusive_bounds_and_returns_one_row_per_currency(client: T
             "startDate": document["documentDate"],
             "endDate": document["documentDate"],
             "status": "all",
-            "customer": "",
         },
     )
     assert report.status_code == 200, report.text

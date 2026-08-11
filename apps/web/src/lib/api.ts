@@ -17,7 +17,6 @@ export interface ReportParams {
   startDate: string;
   endDate: string;
   status: DocumentStatus | "all";
-  customer: string;
 }
 
 export class ApiClientError extends Error {
@@ -228,7 +227,6 @@ export function getReport(params: ReportParams): Promise<ReportResponse> {
     startDate: params.startDate,
     endDate: params.endDate,
     status: params.status,
-    customer: params.customer,
   });
   return request<ReportResponse>(`/api/v1/reports/summary?${query}`);
 }

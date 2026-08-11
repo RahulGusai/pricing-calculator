@@ -28,11 +28,12 @@ requires PostgreSQL.
 
 - Auth uses an opaque `pricing_session` `HttpOnly` cookie. The database stores only a
   hash; authenticated mutations additionally require `X-CSRF-Token`.
-- JSON money, quantities, and rates are decimal strings. Inputs accept at most two
-  decimals, and responses normalize them to exactly two decimals.
+- JSON money and rates are decimal strings. Inputs accept at most two decimals, and
+  responses normalize them to exactly two decimals. Quantity is a positive whole-number
+  string and is returned without a fractional part.
 - USD, INR, and AED are the allowed deployment currencies. Internally their amounts
-  are cents, paise, and fils; all use scale 100. Quantity and percentage points also
-  use integer scale 100.
+  are cents, paise, and fils; all use scale 100. Quantity is stored as a whole integer,
+  while percentage points use integer scale 100.
 - The pure `pricing_api.pricing` module uses half-up line rounding, applies discount
   before tax, and sums already-rounded line components for document totals.
 - Documents use full ordered-line `PATCH` replacement while draft. Finalized content

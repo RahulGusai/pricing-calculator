@@ -31,9 +31,10 @@ Production builds never start the MSW worker.
   memory, retries one stale-CSRF response, and never sends a bearer token.
 - The editor submits only write fields and renders pricing totals returned by
   FastAPI. It discovers selectable currencies from `/api/v1/config/currencies`.
-- Line-level tax is a direct percentage input. Decimal controls retain natural partial
-  edit states but do not accept more than two fractional digits; FastAPI remains the
-  authoritative validation and calculation boundary.
+- Line-level tax is a direct percentage input. Money and rate controls retain natural
+  partial edit states but do not accept more than two fractional digits; quantity accepts
+  positive whole numbers only. FastAPI remains the authoritative validation and
+  calculation boundary.
 - Preview is the only printable output for drafts and finalized documents. It can open
   the browser print dialog and never requests a generated backend PDF.
 - Line descriptions are multiline, wrap within the item column, and are capped at 240

@@ -1,277 +1,176 @@
 # Multi-Rate Pricing Calculator
 
-A full-stack take-home project for creating pricing documents with per-line
-discounts and taxes, enforcing a draft/finalized lifecycle, and reporting totals
-over an issue-date range.
+> [!IMPORTANT]
+> **Agents must start with [AGENTS.md](AGENTS.md).** It defines the non-negotiable
+> financial, ownership, lifecycle, testing, and deployment rules for this repository.
+> Human contributors should then read [CONTRIBUTING.md](CONTRIBUTING.md).
 
-> **Required first step for every human or agent:** read [AGENTS.md](AGENTS.md)
-> before inspecting, planning, editing, testing, or running any command in this
-> repository. It contains the non-negotiable pricing, ownership, lifecycle, and
-> deployment rules.
+## What it does
 
-> **Current checkpoint:** FastAPI is the React application's normal local and
-> production API boundary. The frontend consumes checked-in types generated from
-> FastAPI OpenAPI, uses cookie sessions with in-memory CSRF state, and leaves MSW as
-> an explicit, in-memory test/visual mode only. Railway resources and a live
-> deployment have not been created or verified.
+Multi-Rate Pricing Calculator is a full-stack workspace for creating client pricing
+documents with line-level discounts and tax rates. It calculates each line
+server-side, lets users work in a supported document currency, locks finalized
+documents, and reports inclusive date-range totals in separate currency groups.
+
+The application is deliberately not an invoicing or foreign-exchange system: one
+document has one currency, totals are never trusted from the browser, and a report
+never combines money across currencies. Printable preview is browser-only; the
+application does not generate or persist PDFs.
 
 ## Links
 
-| Surface | URL |
+| Resource | Link |
 | --- | --- |
-| Frontend | Pending Railway deployment |
-| API | Local: `http://localhost:8000` after setup; Railway deployment pending |
-| OpenAPI | Local: `http://localhost:8000/openapi.json` after setup |
-| Repository | <https://github.com/RahulGusai/pricing-calculator> |
+| Sign up locally | [http://localhost:5173/signup](http://localhost:5173/signup) |
+| Repository | [RahulGusai/pricing-calculator](https://github.com/RahulGusai/pricing-calculator) |
+| Deployment guide | [Railway setup](docs/deployment.md) |
+| API contract | [OpenAPI after local start](http://localhost:8000/openapi.json) |
 
-No live application URL is claimed at this checkpoint.
+No public production domain is documented in this repository. The local sign-up and
+OpenAPI links are available after starting the services below.
 
-## Frontend visual direction
-
-| Visual | Purpose |
-| --- | --- |
-| [Original Option 1 reference](docs/visuals/revised-option-1.png) | Historical visual baseline; current editor rules are in ADR 0007 |
-| [Light editor](docs/visuals/editor-light.jpg) | Operational editing workspace |
-| [Dark editor](docs/visuals/editor-dark.jpg) | Low-glare editing workspace |
-| [Calculation summary](docs/visuals/editor-light-summary.jpg) | Auditable server-returned totals |
-| [Sign in](docs/visuals/login-light.jpg) | Authentication entry point |
-
-The current contained, Light/Dark-only editor contract is recorded in
-[ADR 0007](docs/decisions/0007-contained-two-mode-document-editor.md); older visual
-artifacts are references rather than pixel-accurate implementation targets.
-
-## Product scope
-
-- Email/password sign-up and login with strict per-user data isolation.
-- Draft pricing documents with editable metadata and line items.
-- Fixed or percentage discount per line, followed by a directly entered percentage
-  tax rate.
-- Server-authoritative line and document totals with a documented rounding policy.
-- Finalized document contents that remain immutable, with confirmed permanent deletion
-  available as a separate lifecycle operation.
-- Inclusive issue-date range reporting with one subtotal/discount/tax/total row per
-  document currency.
-- Print-ready browser preview for drafts and finalized documents; no generated PDF or
-  object-storage subsystem.
-- Duplication of a finalized document into a new draft.
-
-## Architecture
+## System at a glance
 
 ```mermaid
 flowchart LR
-    Browser["React web app"] -->|"same-origin /api proxy"| API["FastAPI"]
-    API --> DB["PostgreSQL / SQLite"]
+    User["Authenticated user"] --> Web["Web service\nReact SPA + Caddy"]
+    Web -->|"same-origin /api"| API["API service\nFastAPI"]
+    API -->|"production"| Postgres["PostgreSQL\ncanonical records"]
+    API -. "local development & tests" .-> SQLite["SQLite"]
+    Web -->|"browser print dialog"| Preview["Printable preview\nnot persisted"]
 ```
 
-The relational database is the source of truth for users, documents, line items,
-status, and totals. Production uses PostgreSQL; SQLite remains a local and
-focused-test convenience. Printable output is rendered from authorized API data in
-the browser and is not persisted as a backend file.
+Railway deploys `web` and `api` as independent services. Caddy routes browser
+requests under `/api/*` to FastAPI on Railway private networking; PostgreSQL stores
+the complete canonical record.
 
-### Frontend - implemented locally
+## Design choices
 
-- React 19, TypeScript, and Vite.
-- React Router for protected layouts and URL-addressable workflows.
-- TanStack Query for FastAPI server state and cache invalidation.
-- React Hook Form and Zod for dynamic line-item forms and boundary validation.
-- Generated FastAPI OpenAPI declarations plus a handwritten API adapter; MSW is
-  limited to explicit in-memory unit/visual testing.
-- Phosphor icons with text labels for consequential actions.
-- Bundled Source Sans 3 and Source Serif 4 variable fonts, avoiding runtime font requests.
-- Light and Dark appearance controls in the sidebar utility area; finalized read-only
-  behavior remains a lifecycle state rather than a third appearance mode.
-- The migration target is backend-configured USD, INR, and AED only, with no implied
-  foreign-exchange conversion and currency-separated report totals.
-- Vitest, Testing Library, jest-dom, user-event, and jsdom for behavior-focused tests.
-- The approved **Option 1 evolution**: an editorial financial workspace with
-  high-density data where needed, quiet paper-like surfaces, and restrained accents.
+### Exact calculations and rounding
 
-These libraries have deliberately separate jobs. They do not calculate authoritative
-totals or create a second domain layer in React. See
-[ADR 0002](docs/decisions/0002-react-vite-mock-first.md) and the
-[frontend design brief](docs/frontend-design-brief.md).
+- Money, fixed discounts, and percentage rates are submitted as strings with at most
+  two decimal places. The server converts them to integers before any arithmetic.
+- Quantity is a positive whole-number string, stored as an integer. It never accepts
+  fractional units.
+- Discount is applied before tax. Each line component rounds `HALF_UP` to the nearest
+  minor currency unit, then document totals sum those already-rounded line values.
+- The reference pricing document totals **421.50**.
 
-### Backend - implemented locally
+### Currency model
 
-- FastAPI and Pydantic schemas under `apps/api`.
-- SQLAlchemy 2 models and Alembic migrations, including removal of the retired
-  artifact table in `0002_remove_artifacts`.
-- PostgreSQL for Railway production; SQLite only for local development and focused
-  tests. Production configuration rejects SQLite.
-- Opaque, database-backed sessions in an `HttpOnly` cookie; only a session-token hash
-  is stored, and authenticated mutations require a server-derived CSRF header.
-- Integer fixed-point calculations and transactional draft/finalized lifecycle state.
+- **Default:** `USD`, configured with `PRICING_DEFAULT_CURRENCY`.
+- **Supported currencies:** `USD`, `INR`, and `AED` by default, configured with the
+  comma-separated `PRICING_SUPPORTED_CURRENCIES` setting.
+- The frontend reads enabled currencies from `GET /api/v1/config/currencies`; it does
+  not own its own currency list.
+- A draft can select one supported currency. Finalized currency is immutable, there is
+  no FX conversion, and reports return one totals row per currency.
 
-See [architecture](docs/architecture.md), the
-[decision log](docs/decisions/README.md), and the
-[product-pattern research](docs/research/frontend-product-patterns.md).
+## Tech stack
+
+### Backend
+
+| Technology | Role |
+| --- | --- |
+| Python 3.12+, FastAPI, Pydantic | Typed HTTP API and request/response validation |
+| SQLAlchemy 2 + Alembic | Relational persistence and versioned schema changes |
+| PostgreSQL | Production source of truth on Railway |
+| SQLite | Local development and focused test database only |
+| Argon2id + opaque HTTP-only sessions | Password hashing, cookie sessions, and CSRF-protected mutations |
+
+The API owns the following canonical tables:
+
+| Table | Purpose |
+| --- | --- |
+| `users` | Account identity, normalized email, workspace details, and Argon2id password hash. |
+| `sessions` | Hashed, revocable opaque browser sessions with expiry and last-seen metadata. |
+| `documents` | Owner-scoped document header, currency, lifecycle state, dates, and materialized totals. |
+| `line_items` | Ordered document lines, normalized pricing inputs, and server-calculated line totals. |
+
+There is no PDF, object-storage, or artifact-metadata table. Printable output is
+derived from an authorized document response in the browser.
+
+### Frontend
+
+| Technology | Role |
+| --- | --- |
+| React 19 + TypeScript + Vite | Single-page application and production bundle |
+| React Router | Protected, URL-addressable application flows |
+| TanStack Query | API server state, caching, and invalidation |
+| React Hook Form + Zod | Dynamic line-item forms and client-side boundary validation |
+| Generated FastAPI OpenAPI types | Checked-in contract declarations consumed by the API adapter |
+| Source Sans 3 + Source Serif 4 | Bundled operational typography and restrained editorial emphasis |
+| Phosphor icons | Consistent accessible interface icons |
+| Vitest + Testing Library + MSW | Unit/UI coverage and explicit test-only API contract double |
 
 ## Repository layout
 
 ```text
 .
 ├── apps/
-│   ├── api/          # FastAPI service, Alembic migrations, tests, and Railway config
-│   └── web/          # React frontend, FastAPI adapter, and test-only mock
-├── docs/
-│   ├── decisions/    # Architecture decision records
-│   ├── research/     # First-party product-pattern evidence
-│   ├── architecture.md
-│   └── frontend-design-brief.md
-├── AGENTS.md         # Repository-wide rules for agents and contributors
-├── CONTRIBUTING.md
+│   ├── api/          # FastAPI service, Alembic migrations, and API tests
+│   └── web/          # React application, generated contract, and UI tests
+├── docs/             # Architecture, deployment guide, research, and ADRs
+├── AGENTS.md         # Rules every agent must read first
+├── CONTRIBUTING.md   # Local workflow and review expectations
 └── README.md
 ```
 
-## Run the full application locally
+## Run locally
 
-Prerequisites: a current Node.js LTS release and npm.
+Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), a current Node.js LTS
+release, and npm.
 
 ```bash
+# Terminal 1 — API
 cd apps/api
 uv sync --all-groups
 cp .env.example .env
 uv run alembic upgrade head
 uv run uvicorn pricing_api.main:app --reload --host 0.0.0.0 --port 8000
 
-# In a second terminal:
+# Terminal 2 — web
 cd apps/web
 npm ci
 npm run dev
 ```
 
-The web manifest currently defines these checks:
+Open [http://localhost:5173/signup](http://localhost:5173/signup) to create a local
+account. Vite calls FastAPI at `http://localhost:8000` during development; Railway
+uses Caddy's same-origin `/api` proxy.
+
+`VITE_API_MODE=mock` enables the in-memory MSW contract double for tests and visual
+work only. It is not a production data source.
+
+## Verification commands
 
 ```bash
-npm run test
+# API — run from apps/api
+uv run pytest
+uv run ruff check src tests
+uv run alembic check
+
+# Web — run from apps/web
 npm run typecheck
 npm run lint
+npm run test
 npm run build
 npm run test:sites
 ```
 
-Use the sign-up page to create a local account. Vite's real path calls
-`http://localhost:8000` in development; Railway uses Caddy's same-origin `/api`
-proxy. `VITE_API_MODE=mock` is an explicit test/visual-only opt-in and production
-builds never start it.
-
-## Run the backend locally
-
-Prerequisites: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+When a FastAPI contract changes, regenerate and commit the web declarations:
 
 ```bash
-cd apps/api
-uv sync --all-groups
-cp .env.example .env
-uv run alembic upgrade head
-uv run uvicorn pricing_api.main:app --reload --host 0.0.0.0 --port 8000
+cd apps/web
+npm run generate:api
+npm run check:api
 ```
 
-Useful backend checks:
+## Further reading
 
-```bash
-cd apps/api
-uv run pytest
-uv run ruff check src tests
-uv run alembic check
-```
-
-Local development uses SQLite by default; it never creates a PDF directory. See
-[deployment guidance](docs/deployment.md) for the Railway PostgreSQL configuration.
-
-## FastAPI contract boundary
-
-FastAPI's generated OpenAPI schema is the browser contract source of truth.
-`apps/web/src/lib/generated/openapi.ts` is generated with `npm run generate:api`,
-while `apps/web/src/lib/api.ts` remains the component-facing adapter. The browser
-uses an HTTP-only cookie, stores only the CSRF token in module memory, and sends no
-bearer access token. UI writes submit input-only DTOs; totals, lifecycle status, and
-currency-separated report groups come from the API.
-
-MSW remains deterministic coverage for the same contract, including cookie/CSRF
-semantics, but it is non-persistent and starts only with `VITE_API_MODE=mock`.
-
-## Calculation policy
-
-All money, quantity, fixed-discount, and percentage values enter and leave the API as
-fixed decimal strings with at most two decimal places. Binary floating point is
-forbidden for authoritative calculations. The backend immediately converts values to
-integers:
-
-| Value | Internal representation |
-| --- | --- |
-| USD | cents: `1 USD = 100` |
-| INR | paise: `1 INR = 100` |
-| AED | fils: `1 AED = 100` |
-| Quantity | integer scaled by `100` (`"3.00"` → `300`) |
-| Percentage | integer scaled by `100` (`"12.50%"` → `1250`) |
-
-For each line, monetary components round to the nearest minor unit using
-`ROUND_HALF_UP`:
-
-1. `subtotal = round(quantity x unit_price)`
-2. `discount = fixed_amount` or `round(subtotal x percent / 100)`
-3. `after_discount = subtotal - discount`
-4. `tax = round(after_discount x tax_percent / 100)`
-5. `line_total = after_discount + tax`
-
-Document totals sum the already-rounded line values. A fixed discount greater than
-the rounded line subtotal is rejected rather than clamped. For a percentage rate
-stored as `rateScaled`, the integer calculation is
-`round_half_up(amountMinor * rateScaled / 10000)`. A document has exactly one
-currency; changing a draft currency never performs foreign-exchange conversion, and
-reports never combine money from different currencies.
-
-The assignment reference must produce:
-
-| Total | Amount |
-| --- | ---: |
-| Subtotal | 450.00 |
-| Discount | 40.00 |
-| Tax | 11.50 |
-| Grand total | **421.50** |
-
-## Document lifecycle
-
-- New documents are drafts.
-- Only drafts may change metadata, ordering, or line items.
-- Finalization recalculates and validates the entire document server-side.
-- A finalized document cannot be edited. Whole-document deletion is a separate,
-  owner-authorized operation requiring `{ "confirm": true }` and a deliberate UI
-  confirmation.
-- Duplication creates new IDs and a new draft; it never reopens the source.
-- Deleting a draft or finalized document removes the owner-scoped relational record
-  after explicit confirmation.
-- Preview remains available for drafts and finalized documents and can invoke the
-  browser's print dialog; it does not generate or download a backend PDF.
-
-## Deployment intent
-
-The monorepo is configured for two independently built Railway services plus Railway
-PostgreSQL. The frontend will serve its production bundle and route API traffic to
-FastAPI; the API alone receives database and session secrets. The API's Railway config
-runs Alembic before deployment and exposes `/health`. Railway services, domains,
-environment values, and live URLs have not yet been configured or verified.
-
-## Assumptions and production follow-ups
-
-- Report date bounds are inclusive and default to all document statuses.
-- Currency is stored per document and limited to backend-configured USD, INR, and AED.
-- Money, quantity, and rates accept at most two decimal places and normalize to exactly
-  two decimal places in responses. Browser fields prevent a third fractional digit
-  from entering form state; FastAPI still validates and normalizes every submitted
-  decimal string.
-- A draft may be empty, but finalization requires at least one valid line.
-- No filesystem or bucket is required because canonical documents remain relational
-  and printable output is browser-only.
-
-Before production, add session-device management, optimistic-concurrency versioning,
-audit events, structured tracing, rate limiting, backups, security scanning, and
-measured load/accessibility budgets.
-
-## Contributing
-
-Read [AGENTS.md](AGENTS.md) before making changes and follow
-[CONTRIBUTING.md](CONTRIBUTING.md). The selected Option 1 direction is approved for
-frontend work. The [frontend migration record](docs/frontend-backend-migration-plan.md)
-defines the FastAPI contract and completed cutover scope.
+- [Architecture](docs/architecture.md)
+- [Frontend/backend contract](docs/frontend-backend-migration-plan.md)
+- [Deployment guide](docs/deployment.md)
+- [Decision records](docs/decisions/README.md)
+- [Web service README](apps/web/README.md)
+- [API service README](apps/api/README.md)

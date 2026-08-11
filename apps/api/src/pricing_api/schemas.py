@@ -58,7 +58,7 @@ class CurrencyConfigResponse(ApiModel):
     defaultCurrency: CurrencyCode
     currencies: list[CurrencyResponse]
     moneyDecimalPlaces: int = 2
-    quantityDecimalPlaces: int = 2
+    quantityDecimalPlaces: int = 0
     rateDecimalPlaces: int = 2
     roundingMode: Literal["HALF_UP"] = "HALF_UP"
 
@@ -181,7 +181,6 @@ class ReportResponse(ApiModel):
     startDate: date
     endDate: date
     status: Literal["all", "draft", "finalized"]
-    customer: str
     documentCount: int
     currencyTotals: list[CurrencyTotalResponse]
     documents: list[DocumentSummaryResponse]

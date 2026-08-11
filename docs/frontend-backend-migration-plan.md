@@ -56,10 +56,10 @@ and report visibility. Railway is intentionally not verified by this local cutov
   Arab Emirates dirham. The backend enables them with environment configuration;
   the frontend gets the enabled list from `GET /api/v1/config/currencies` and must
   not hard-code its own selectable list.
-- Every money, quantity, fixed-discount, percentage, rate, and calculated amount in
-  JSON is a decimal **string**. Money, quantity, and percentage input precision is
-  two decimal places. The backend returns normalized values with exactly two decimal
-  places.
+- Every money, fixed-discount, percentage, rate, and calculated amount in JSON is a
+  decimal **string** with two decimal places after normalization. Quantity is a positive
+  whole-number string. The backend owns all normalization and rejects fractional or
+  non-positive quantities.
 - The backend owns the one authoritative calculation module. The frontend submits
   inputs, renders returned calculations, and must never submit or locally derive
   authoritative totals.
@@ -106,16 +106,17 @@ browser storage: `GET /api/v1/auth/session` is the single session-restoration ch
 | Value | Request form | Response form | Notes |
 | --- | --- | --- | --- |
 | Money | decimal string, e.g. `"19.99"` | exactly two decimals, e.g. `"19.99"` | USD cents, INR paise, and AED fils are integer minor units internally. |
-| Quantity | decimal string, e.g. `"3"` or `"3.00"` | exactly two decimals, e.g. `"3.00"` | Minimum `"1.00"`; no exponent notation. |
+| Quantity | positive whole-number string, e.g. `"3"` | whole-number string, e.g. `"3"` | Minimum `"1"`; no sign, decimal point, or exponent notation. |
 | Percentage | decimal string without `%`, e.g. `"12.50"` | exactly two decimals, e.g. `"12.50"` | Percentage points, in the inclusive range `0.00`–`100.00`. |
 | Date | `YYYY-MM-DD` string | `YYYY-MM-DD` string | Date bounds in reports are inclusive. |
 | Timestamp | not accepted from the client | ISO 8601 UTC string | `updatedAt` and `finalizedAt`. |
 | IDs/counts/bytes | IDs are strings; counts and `sizeBytes` are JSON integers | same | These are not monetary values. |
 
-The accepted input pattern for non-negative two-decimal strings is
-`^\d+(?:\.\d{1,2})?$`. The backend normalizes accepted values rather than trusting
-the browser's formatting. It rejects a third decimal place, negative values,
-scientific notation, and JSON numeric input where a decimal string is required.
+The accepted input pattern for non-negative two-decimal money/rate strings is
+`^\d+(?:\.\d{1,2})?$`; quantity uses `^\d+$`. The backend normalizes accepted values
+rather than trusting the browser's formatting. It rejects a third decimal place where
+applicable, negative values, scientific notation, and JSON numeric input where a
+string is required.
 
 For percentage discounts, `"12.50"` means `12.50%`; for fixed discounts it means a
 money amount in the document currency. The discriminator determines the meaning.
@@ -161,7 +162,7 @@ type CurrencyConfigResponse = {
   defaultCurrency: CurrencyCode;
   currencies: CurrencyDefinition[];
   moneyDecimalPlaces: 2;
-  quantityDecimalPlaces: 2;
+  quantityDecimalPlaces: 0;
   rateDecimalPlaces: 2;
   roundingMode: "HALF_UP";
 };
@@ -178,7 +179,7 @@ type LineWrite = {
   id?: string;              // server-issued ID of an existing line only
   name: string;
   description: string;
-  quantity: string;         // 1.00 or greater; at most two decimal places
+  quantity: string;         // positive whole number, e.g. "3"
   unitPrice: string;        // non-negative money string
   discountType: DiscountType;
   discountValue: string;    // 0.00 for "none"; money or percentage by type
@@ -247,7 +248,7 @@ For example, the browser saves this line input:
 {
   "name": "Design consultation",
   "description": "",
-  "quantity": "3.00",
+  "quantity": "3",
   "unitPrice": "19.99",
   "discountType": "percentage",
   "discountValue": "12.50",
@@ -263,7 +264,7 @@ The returned line contains the server's exact calculation—not a browser previe
   "position": 1,
   "name": "Design consultation",
   "description": "",
-  "quantity": "3.00",
+  "quantity": "3",
   "unitPrice": "19.99",
   "discountType": "percentage",
   "discountValue": "12.50",
@@ -294,7 +295,6 @@ type ReportResponse = {
   startDate: string;
   endDate: string;
   status: DocumentStatus | "all";
-  customer: string;
   documentCount: number;
   currencyTotals: CurrencyReportTotal[];
   documents: DocumentSummary[];
@@ -329,7 +329,7 @@ belonging to another user returns the same `404` envelope as a nonexistent resou
 | `DELETE /api/v1/documents/{documentId}` | `{ confirm: true }`, CSRF header, cookie | `204 No Content` | `422 VALIDATION_ERROR` without deliberate confirmation; `404 DOCUMENT_NOT_FOUND`. The UI must keep its permanent-deletion confirmation for drafts and finalized documents. |
 | `POST /api/v1/documents/{documentId}/finalize` | no body; CSRF header | `200 DocumentResponse` with `status: "finalized"`; repeating it for an already finalized document is idempotent | `404 DOCUMENT_NOT_FOUND`; `422 DOCUMENT_INCOMPLETE` or `DOCUMENT_HAS_NO_LINES`; `409 DOCUMENT_CONFLICT` if a concurrent draft edit wins. |
 | `POST /api/v1/documents/{documentId}/duplicate` | no body; CSRF header | `201 DocumentResponse` for the new draft | `404 DOCUMENT_NOT_FOUND`; `409 DOCUMENT_NOT_FINALIZED` when source is not finalized. |
-| `GET /api/v1/reports/summary?startDate={date}&endDate={date}&status={all\|draft\|finalized}&customer={text}` | cookie; dates are required, `status` defaults to `all`, `customer` to empty | `200 ReportResponse` | `422 INVALID_DATE_RANGE` when start is after end; `422 VALIDATION_ERROR` for malformed values. |
+| `GET /api/v1/reports/summary?startDate={date}&endDate={date}&status={all\|draft\|finalized}` | cookie; dates are required and `status` defaults to `all` | `200 ReportResponse` | `422 INVALID_DATE_RANGE` when start is after end; `422 VALIDATION_ERROR` for malformed values. |
 
 The server may return `400 INVALID_JSON` for invalid JSON and `500 INTERNAL_ERROR`
 for an unexpected failure. Both use `ApiErrorBody`; frontend code must still retain a
@@ -404,15 +404,15 @@ belongs to another owner returns `404 DOCUMENT_NOT_FOUND`.
 
 ### 4. Make browser validation match the contract
 
-Use text inputs with `inputMode="decimal"`, not `type="number"`. Keep the last valid
-partial string when typing or pasting would introduce a third fractional digit, so an
-invalid precision never enters form state. Preserve natural partial edits such as
-`12.`. Validate the resulting strings on blur and before a save using fixed-string/
-`bigint` comparison helpers—never `Number()` for money, quantities, or rates.
+Use text inputs, not `type="number"`. Money and rate inputs use `inputMode="decimal"`
+and keep the last valid partial string when typing or pasting would introduce a third
+fractional digit. Quantity uses `inputMode="numeric"` and accepts digits only. Validate
+the resulting strings on blur and before a save using fixed-string/`bigint` comparison
+helpers—never `Number()` for money, quantities, or rates.
 
 | Field | Browser rule | Server remains authoritative for |
 | --- | --- | --- |
-| `quantity` | non-negative decimal string with at most two decimals and value `>= 1.00` | canonical normalization and all arithmetic |
+| `quantity` | positive whole-number string, value `>= 1` | canonical normalization and all arithmetic |
 | `unitPrice` | non-negative decimal string with at most two decimals | amount bounds and line subtotal |
 | fixed `discountValue` | non-negative decimal string with at most two decimals | rejection when it exceeds the rounded line subtotal |
 | percentage `discountValue` | `0.00`–`100.00`, at most two decimals | percentage rounding |

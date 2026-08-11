@@ -222,7 +222,7 @@ export interface components {
             moneyDecimalPlaces: number;
             /**
              * Quantitydecimalplaces
-             * @default 2
+             * @default 0
              */
             quantityDecimalPlaces: number;
             /**
@@ -482,8 +482,6 @@ export interface components {
              * @enum {string}
              */
             status: "all" | "draft" | "finalized";
-            /** Customer */
-            customer: string;
             /** Documentcount */
             documentCount: number;
             /** Currencytotals */
@@ -903,7 +901,6 @@ export interface operations {
                 startDate: string;
                 endDate: string;
                 status?: "all" | "draft" | "finalized";
-                customer?: string;
             };
             header?: never;
             path?: never;

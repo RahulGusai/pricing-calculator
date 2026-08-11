@@ -80,7 +80,7 @@ export const handlers = [
         { code: "AED", minorUnit: 2 },
       ],
       moneyDecimalPlaces: 2,
-      quantityDecimalPlaces: 2,
+      quantityDecimalPlaces: 0,
       rateDecimalPlaces: 2,
       roundingMode: "HALF_UP",
     });
@@ -222,11 +222,10 @@ export const handlers = [
       const startDate = url.searchParams.get("startDate") ?? "";
       const endDate = url.searchParams.get("endDate") ?? "";
       const statusValue = url.searchParams.get("status") ?? "all";
-      const customer = url.searchParams.get("customer") ?? "";
       if (!(["all", "draft", "finalized"] as const).includes(statusValue as DocumentStatus | "all")) {
         throw new MockApiError(422, "VALIDATION_ERROR", "Status must be all, draft, or finalized.");
       }
-      return HttpResponse.json(mockStore.report(ownerId, startDate, endDate, statusValue as DocumentStatus | "all", customer));
+      return HttpResponse.json(mockStore.report(ownerId, startDate, endDate, statusValue as DocumentStatus | "all"));
     } catch (error) {
       return errorResponse(error);
     }

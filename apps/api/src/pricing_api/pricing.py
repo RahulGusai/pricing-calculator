@@ -2,10 +2,10 @@
 
 All public input values are fixed-point decimal strings.  The pricing module
 converts them to integers immediately and never uses binary floating point.
-Money, quantities, and percentage points each use a scale of 100:
+Money and percentage points each use a scale of 100. Quantities are whole units:
 
 * ``"19.99"`` money becomes ``1999`` minor units.
-* ``"3.00"`` quantity becomes ``300`` quantity units.
+* ``"3"`` quantity becomes ``3`` quantity units.
 * ``"12.50"`` percent becomes ``1250`` rate units.
 
 Percentage calculations divide by ``100 * RATE_SCALE`` because the stored rate
@@ -21,15 +21,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 MONEY_DECIMAL_PLACES = 2
-QUANTITY_DECIMAL_PLACES = 2
 RATE_DECIMAL_PLACES = 2
 
 MONEY_SCALE = 100
-QUANTITY_SCALE = 100
 RATE_SCALE = 100
 PERCENT_DENOMINATOR = 100 * RATE_SCALE
 
 _UNSIGNED_DECIMAL = re.compile(r"^\d+(?:\.\d+)?$")
+_WHOLE_NUMBER = re.compile(r"^\d+$")
 
 
 class PricingValidationError(ValueError):
@@ -104,16 +103,12 @@ class LineTotals:
 class CalculatedLine:
     """A normalized line together with its calculated money components."""
 
-    quantity_scaled: int
+    quantity: int
     unit_price_minor: int
     discount_type: DiscountType
     discount_value_scaled: int
     tax_rate_scaled: int
     totals: LineTotals
-
-    @property
-    def quantity(self) -> str:
-        return format_quantity(self.quantity_scaled)
 
     @property
     def unit_price(self) -> str:
@@ -202,14 +197,12 @@ def parse_money(value: str, field: str = "amount") -> int:
 
 
 def parse_quantity(value: str, field: str = "quantity") -> int:
-    """Convert a two-decimal quantity string to its scaled integer form."""
+    """Convert a whole-number quantity string to its stored integer value."""
 
-    quantity = _parse_unsigned_fixed(
-        value,
-        decimal_places=QUANTITY_DECIMAL_PLACES,
-        field=field,
-    )
-    if quantity < QUANTITY_SCALE:
+    if not isinstance(value, str) or not _WHOLE_NUMBER.fullmatch(value):
+        raise PricingValidationError(field, "Quantity must be a whole number.")
+    quantity = int(value)
+    if quantity < 1:
         raise PricingValidationError(field, "Quantity must be at least 1.")
     return quantity
 
@@ -233,10 +226,12 @@ def format_money(value_minor: int) -> str:
     return _format_fixed(value_minor, decimal_places=MONEY_DECIMAL_PLACES)
 
 
-def format_quantity(value_scaled: int) -> str:
-    """Format a quantity integer with exactly two decimal places."""
+def format_quantity(value: int) -> str:
+    """Format a stored whole quantity for the API's string boundary."""
 
-    return _format_fixed(value_scaled, decimal_places=QUANTITY_DECIMAL_PLACES)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError("Quantity must be a positive whole integer.")
+    return str(value)
 
 
 def format_rate(value_scaled: int) -> str:
@@ -273,15 +268,12 @@ def calculate_line(line: LineInput) -> CalculatedLine:
     quantity unit, or rate unit.
     """
 
-    quantity_scaled = parse_quantity(line.quantity)
+    quantity = parse_quantity(line.quantity)
     unit_price_minor = parse_money(line.unit_price, "unitPrice")
     discount_type = _parse_discount_type(line.discount_type)
     tax_rate_scaled = parse_rate(line.tax_rate, "taxRate")
 
-    subtotal_minor = round_half_up(
-        quantity_scaled * unit_price_minor,
-        QUANTITY_SCALE,
-    )
+    subtotal_minor = quantity * unit_price_minor
 
     discount_value_scaled = 0
     discount_minor = 0
@@ -315,7 +307,7 @@ def calculate_line(line: LineInput) -> CalculatedLine:
     grand_total_minor = after_discount_minor + tax_minor
 
     return CalculatedLine(
-        quantity_scaled=quantity_scaled,
+        quantity=quantity,
         unit_price_minor=unit_price_minor,
         discount_type=discount_type,
         discount_value_scaled=discount_value_scaled,

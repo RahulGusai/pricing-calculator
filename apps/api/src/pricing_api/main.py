@@ -288,7 +288,6 @@ def create_app(
         start_date: Annotated[date, Query(alias="startDate")],
         end_date: Annotated[date, Query(alias="endDate")],
         status: Annotated[Literal["all", "draft", "finalized"], Query()] = "all",
-        customer: Annotated[str, Query(max_length=250)] = "",
     ) -> ReportResponse:
         return services.report_summary(
             db,
@@ -296,7 +295,6 @@ def create_app(
             start_date=start_date,
             end_date=end_date,
             status=status,
-            customer=customer,
         )
 
     return app

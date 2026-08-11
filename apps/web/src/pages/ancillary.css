@@ -468,7 +468,7 @@
 }
 
 .ancillary-select-label select,
-.report-filters :is(input, select) {
+.report-filters :is(input, .app-select-trigger) {
   min-height: 2.65rem;
   border: 1px solid var(--border, #d6d0c3);
   border-radius: 0.45rem;
@@ -479,7 +479,7 @@
 }
 
 .ancillary-select-label select:focus-visible,
-.report-filters :is(input, select):focus-visible {
+.report-filters :is(input, .app-select-trigger):focus-visible {
   border-color: var(--accent, #37725a);
   outline: 0;
   box-shadow: inset 0 0 0 1px var(--accent, #37725a);
@@ -720,7 +720,7 @@
   line-height: 1.3;
 }
 
-.report-filters > label {
+.report-filters > :is(label, .report-filter-field) {
   display: grid;
   gap: 0.38rem;
   color: var(--text-muted, #6e7068);
@@ -728,14 +728,14 @@
   font-weight: 700;
 }
 
-.report-filters :is(input, select) {
+.report-filters :is(input, .app-select-trigger) {
   width: 100%;
   min-width: 0;
   padding-inline: 0.66rem;
 }
 
-.report-filters .select-control select {
-  padding-right: 2.3rem !important;
+.report-filters .app-select-options {
+  z-index: 35;
 }
 
 .report-filter-error {

@@ -2,7 +2,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowLeft,
   CalendarBlank,
-  CaretDown,
   Check,
   CheckCircle,
   Copy,
@@ -29,6 +28,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
 import { CalculationSummary } from "../components/CalculationSummary";
+import { AppSelect } from "../components/AppSelect";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
 import {
   ApiClientError,
@@ -618,14 +618,24 @@ export function DocumentEditorPage() {
                 {isReadOnly ? (
                   <strong>{form.getValues("currency")}</strong>
                 ) : (
-                  <span className="select-control">
-                    <select {...form.register("currency")} aria-label="Currency" disabled={currenciesQuery.isLoading}>
-                      {availableCurrencies.map((currency) => (
-                        <option key={currency.code} value={currency.code}>{currency.code}</option>
-                      ))}
-                    </select>
-                    <CaretDown size={16} weight="bold" aria-hidden="true" />
-                  </span>
+                  <>
+                    <input type="hidden" {...form.register("currency")} />
+                    <AppSelect
+                      label="Currency"
+                      value={selectedCurrency}
+                      options={availableCurrencies.map((currency) => ({
+                        value: currency.code,
+                        label: currency.code,
+                      }))}
+                      disabled={currenciesQuery.isLoading}
+                      onChange={(currency) =>
+                        form.setValue("currency", currency, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    />
+                  </>
                 )}
                 {form.formState.errors.currency ? <small className="field-error">{form.formState.errors.currency.message}</small> : null}
               </label>

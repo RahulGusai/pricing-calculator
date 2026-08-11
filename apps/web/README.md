@@ -40,6 +40,9 @@ Production builds never start the MSW worker.
 - Line descriptions are multiline, wrap within the item column, and are capped at 240
   characters by both the UI and FastAPI.
 - Reports render an explicit totals row for every currency in the selected period.
+- The document-currency and report-status menus use the shared app-owned `AppSelect`
+  listbox so their expanded states match the Light/Dark UI; they remain keyboard
+  operable and expose selected state to assistive technology.
 
 ## Editor UX contract
 

@@ -66,13 +66,14 @@ describe("DocumentEditorPage", () => {
     const user = userEvent.setup();
     renderEditor();
 
-    const currency = await screen.findByRole("combobox", { name: "Currency" });
-    expect(currency).toHaveValue("USD");
-    expect(currency.closest(".select-control")).not.toBeNull();
+    const currency = await screen.findByRole("button", { name: "Currency" });
+    expect(currency).toHaveTextContent("USD");
+    expect(currency.tagName).toBe("BUTTON");
+    expect(screen.queryByRole("combobox", { name: "Currency" })).not.toBeInTheDocument();
 
-    await screen.findByRole("option", { name: "INR" });
-
-    await user.selectOptions(currency, "INR");
+    await user.click(currency);
+    expect(await screen.findByRole("listbox", { name: "Currency" })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "INR" }));
 
     await waitFor(
       () => expect(screen.getAllByText("₹421.50").length).toBeGreaterThan(0),

@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   CalendarBlank,
   ChartBar,
-  CaretDown,
   Funnel,
   SpinnerGap,
 } from "@phosphor-icons/react";
@@ -11,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { AppSelect } from "../components/AppSelect";
 import { getReport } from "../lib/api";
 import { formatMoney } from "../lib/format";
 import type { DocumentStatus } from "../types";
@@ -132,26 +132,24 @@ export function ReportsPage() {
           />
         </label>
 
-        <label htmlFor="report-status">
+        <div className="report-filter-field">
           <span>Status</span>
-          <span className="select-control">
-            <select
-              id="report-status"
-              value={draftFilters.status}
-              onChange={(event) =>
-                setDraftFilters((current) => ({
-                  ...current,
-                  status: event.target.value as ReportFilters["status"],
-                }))
-              }
-            >
-              <option value="all">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="finalized">Finalized</option>
-            </select>
-            <CaretDown size={16} weight="bold" aria-hidden="true" />
-          </span>
-        </label>
+          <AppSelect
+            label="Status"
+            value={draftFilters.status}
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "draft", label: "Draft" },
+              { value: "finalized", label: "Finalized" },
+            ]}
+            onChange={(status) =>
+              setDraftFilters((current) => ({
+                ...current,
+                status: status as ReportFilters["status"],
+              }))
+            }
+          />
+        </div>
 
         <button
           className="ancillary-button ancillary-button-primary report-run-button"

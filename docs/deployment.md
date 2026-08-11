@@ -1,9 +1,10 @@
 # Railway deployment
 
-Deploy the repository as two isolated application services plus Railway PostgreSQL.
-The recommended topology exposes only the `web` service publicly. Caddy serves the
-React bundle and reverse-proxies browser requests under `/api/*` to FastAPI over
-Railway private networking.
+Deploy the repository as two isolated Railpack application services plus Railway
+PostgreSQL. The recommended topology exposes only the `web` service publicly.
+Railpack builds the React app and supplies Caddy, whose checked-in configuration
+reverse-proxies browser requests under `/api/*` to FastAPI over Railway private
+networking.
 
 No bucket, volume, S3 credential, or local artifact directory is required. PostgreSQL
 stores the complete canonical document record, while the frontend provides the only
@@ -13,7 +14,7 @@ printable preview.
 
 ```mermaid
 flowchart LR
-    Browser["Browser"] -->|"HTTPS"| Web["web · React + Caddy"]
+    Browser["Browser"] -->|"HTTPS"| Web["web · React + Railpack Caddy"]
     Web -->|"private HTTP /api"| API["api · FastAPI"]
     API -->|"private DATABASE_URL"| PG["Postgres"]
 ```
@@ -33,8 +34,8 @@ Directory is set.
 ## 1. Prepare the repository
 
 1. Run the local checks described in the root README.
-2. Commit the generated OpenAPI declaration, Alembic migration, Dockerfiles,
-   `railway.json` files, and this guide.
+2. Commit the generated OpenAPI declaration, Alembic migrations, service-specific
+   `railway.json` files, the web Caddyfile, and this guide.
 3. Push the branch that Railway should deploy to GitHub.
 4. Confirm no `.env`, database, generated PDF, or credential file is committed.
 
@@ -52,7 +53,22 @@ Directory is set.
 2. In **Settings → Source**, select the deployment branch.
 3. Set **Root Directory** to `/apps/api`.
 4. Set the custom Railway config path to `/apps/api/railway.json`.
-5. Add these service variables:
+5. Under **Build**, confirm the builder is **Railpack** and leave the custom build
+   command empty. The checked-in config selects Railpack `0.36.0` and it detects
+   `uv.lock`.
+6. Under **Deploy**, set the custom start command to the following value. The same
+   command is checked into `railway.json`, so this dashboard value is optional but,
+   if one already exists, it must match exactly:
+
+```text
+uvicorn pricing_api.main:app --host 0.0.0.0 --port $PORT
+```
+
+Do not quote `$PORT` and do not wrap the command in JSON-array syntax. Railpack runs
+the command through a shell, so Railway's runtime port is expanded before Uvicorn
+parses it.
+
+7. Add these service variables:
 
 ```dotenv
 APP_ENVIRONMENT=production
@@ -70,16 +86,14 @@ CSRF_SECRET=replace-with-a-long-unique-random-secret
 Generate `CSRF_SECRET` with a password manager or cryptographically secure secret
 generator. Do not reuse the development value and do not expose it to the web service.
 
-6. Deploy `api`. Its config runs `alembic upgrade head` as a pre-deploy command before
+8. Deploy `api`. Its config runs `alembic upgrade head` as a pre-deploy command before
    starting Uvicorn. A failed migration stops the new deployment.
-7. Confirm the deployment health check for `/health` passes.
-8. A public API domain is optional. Generate one only if reviewers need direct access
+9. Confirm the deployment health check for `/health` passes.
+10. A public API domain is optional. Generate one only if reviewers need direct access
    to `/docs`, `/openapi.json`, or `/health`; the application itself does not need it.
 
-The Dockerfile command binds to `::` and expands `${PORT:-8000}` inside `sh`, which
-works with Railway's current dual-stack private network and older IPv6-only
-environments. `railway.json` deliberately does not override that command: Dockerfile
-start-command overrides use exec form and would pass `$PORT` to Uvicorn literally.
+The Railpack start command binds Uvicorn to `0.0.0.0:$PORT`. The IPv4 bind is
+reachable by Railway's deployment healthchecker and the private-network web proxy.
 
 ## 4. Configure the web reverse proxy
 
@@ -87,7 +101,14 @@ start-command overrides use exec form and would pass `$PORT` to Uvicorn literall
    branch.
 2. Set **Root Directory** to `/apps/web`.
 3. Set the custom Railway config path to `/apps/web/railway.json`.
-4. Add this service variable:
+4. Under **Build**, confirm the builder is **Railpack** and leave the custom build
+   command empty. The checked-in config pins Railpack `0.36.0`; it detects `npm`,
+   runs `npm run build`, reads
+   `dist/client` from `vite.config.js`, and installs Caddy for the static SPA.
+5. Under **Deploy**, **clear the custom start command and leave it empty**. A custom
+   web start command makes Railpack skip its SPA/Caddy path. Railpack generates the
+   correct Caddy start command itself.
+6. Add this service variable:
 
 ```dotenv
 API_UPSTREAM=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}
@@ -97,11 +118,12 @@ API_UPSTREAM=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}
 not Railway's automatically injected runtime port. Internal traffic uses `http`, not
 `https`, because it stays inside Railway's encrypted private network.
 
-5. Deploy `web`. The Docker image builds the Vite bundle and serves it with Caddy.
-6. In **Settings → Networking → Public Networking**, choose **Generate Domain** for
+7. Deploy `web`. Railpack builds the Vite bundle and serves it with Caddy.
+8. In **Settings → Networking → Public Networking**, choose **Generate Domain** for
    `web`. This is the only URL users need.
 
-Caddy already implements the reverse proxy:
+The checked-in Caddyfile serves Railpack's detected Vite output path and implements
+the reverse proxy:
 
 ```caddyfile
 handle /api/* {
@@ -163,13 +185,22 @@ Confirm the custom config paths are `/apps/api/railway.json` and
 - Confirm both services are in the same project and environment.
 - Confirm `api` has the explicit variable `PORT=8000`.
 - Confirm `API_UPSTREAM` references the exact service name `api`.
-- Confirm Uvicorn is listening on `::` and the API `/health` check is passing.
+- Confirm Uvicorn is listening on `0.0.0.0:$PORT` and the API `/health` check is
+  passing.
 - Do not use the API public URL as the first workaround; fix private networking.
 
 ### API deployment fails before startup
 
 Inspect the pre-deploy logs. Verify `DATABASE_URL=${{Postgres.DATABASE_URL}}` resolves,
 PostgreSQL is healthy, and the migration exits successfully.
+
+### Railpack does not serve the web build with Caddy
+
+- Confirm the web service has no custom start command. A custom command disables
+  Railpack's SPA path.
+- Confirm the root directory is `/apps/web`, the builder is `RAILPACK`, and the build
+  log says `Deploying as vite static site` with output directory `dist/client`.
+- Confirm `vite.config.js` and `Caddyfile` are present in the deployed source.
 
 ### Login works but disappears after refresh
 
@@ -178,13 +209,15 @@ and no direct `VITE_API_URL` bypasses Caddy in the recommended topology.
 
 ### Refreshing a frontend route returns 404
 
-Confirm the web image is using the checked-in Caddyfile. Its `try_files` rule routes
-unknown paths to `index.html` for React Router.
+Confirm Railpack is using the checked-in Caddyfile. Its `try_files` rule routes unknown
+paths to `index.html` for React Router.
 
 ## References
 
 - [Railway monorepo deployment](https://docs.railway.com/deployments/monorepo)
-- [Railway config as code](https://docs.railway.com/config-as-code)
+- [Railway Railpack builds](https://docs.railway.com/builds/railpack)
+- [Railpack Node and SPA detection](https://railpack.com/languages/node/)
+- [Railway config as code](https://docs.railway.com/config-as-code/reference)
 - [Railway private networking](https://docs.railway.com/private-networking)
 - [Railway PostgreSQL](https://docs.railway.com/databases/postgresql)
 - [Railway pre-deploy commands](https://docs.railway.com/deployments/pre-deploy-command)

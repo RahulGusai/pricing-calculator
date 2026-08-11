@@ -77,10 +77,11 @@ uses the browser print dialog. The API does not create files or download URLs.
 
 ## Deployment topology
 
-One Railway project contains `web`, `api`, and PostgreSQL. The two
-application services point at isolated monorepo roots. The API Dockerfile,
-`railway.json`, Alembic pre-deploy command, and production configuration validation
-are implemented; provisioning and a live Railway verification remain pending.
+One Railway project contains `web`, `api`, and PostgreSQL. The two application
+services point at isolated monorepo roots and use Railpack. The service-specific
+`railway.json` files, Alembic pre-deploy command, Vite/Caddy proxy, and production
+configuration validation are implemented; provisioning and a live Railway
+verification remain pending.
 
 ## Deliberate follow-ups
 

@@ -56,8 +56,10 @@ uv run alembic check
 
 ## Railway
 
-The service ships with a Dockerfile and `railway.json`. Production must set
+The service uses Railway's Railpack builder through `railway.json`. Railpack detects
+the `uv.lock` project, while the deploy config starts Uvicorn on Railway's assigned
+`PORT` and runs Alembic before deployment. Production must set
 `APP_ENVIRONMENT=production`, a Railway PostgreSQL `DATABASE_URL`,
-`SESSION_COOKIE_SECURE=true`, and a unique `CSRF_SECRET`. See
-[the deployment guide](../../docs/deployment.md); do not run migrations against a
-live Railway database without explicit authorization.
+`SESSION_COOKIE_SECURE=true`, and a unique `CSRF_SECRET`. See [the deployment
+guide](../../docs/deployment.md); do not run migrations against a live Railway
+database without explicit authorization.

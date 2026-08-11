@@ -29,7 +29,8 @@
     }
 
     handle {
-        root * /srv
+        # Railpack preserves the detected Vite output at this absolute path.
+        root * /app/dist/client
         try_files {path} /index.html
         file_server
     }

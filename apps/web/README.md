@@ -65,8 +65,10 @@ npm run test:sites
 ```
 
 `npm run build` writes the browser bundle to `dist/client` and preserves the
-Sites-hosting worker contract. The Railway image serves `dist/client` with Caddy and
-proxies relative `/api/*` requests to `API_UPSTREAM`.
+Sites-hosting worker contract. Railway Railpack detects the Vite output, installs
+Caddy, uses the checked-in Caddyfile for that output path, and proxies relative
+`/api/*` requests to `API_UPSTREAM`. Leave the Railway web start command empty;
+setting one disables Railpack's SPA/Caddy deployment path.
 
 ## Source map
 

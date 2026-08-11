@@ -76,8 +76,10 @@ generator. Do not reuse the development value and do not expose it to the web se
 8. A public API domain is optional. Generate one only if reviewers need direct access
    to `/docs`, `/openapi.json`, or `/health`; the application itself does not need it.
 
-The checked-in Uvicorn command binds to `::` and port `$PORT`, which works with
-Railway's current dual-stack private network and older IPv6-only environments.
+The Dockerfile command binds to `::` and expands `${PORT:-8000}` inside `sh`, which
+works with Railway's current dual-stack private network and older IPv6-only
+environments. `railway.json` deliberately does not override that command: Dockerfile
+start-command overrides use exec form and would pass `$PORT` to Uvicorn literally.
 
 ## 4. Configure the web reverse proxy
 

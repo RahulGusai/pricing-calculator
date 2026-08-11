@@ -12,7 +12,6 @@
   },
   "deploy": {
     "preDeployCommand": "alembic upgrade head",
-    "startCommand": "uvicorn pricing_api.main:app --host :: --port $PORT",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",

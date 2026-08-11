@@ -1,7 +1,14 @@
 # ADR 0006: Confirmed finalized-document deletion
 
-- Status: Accepted
+- Status: Superseded in part by ADRs 0007 and 0008
 - Date: 2026-08-10
+
+> ADR 0007 retires Reading mode and supersedes only the presentation-specific deletion
+> rule below. Confirmed deletion from both the register and normal detail view remains
+> accepted.
+>
+> ADR 0008 removes the artifact-cleanup portion of deletion. Confirmed relational
+> deletion and finalized immutability remain accepted.
 
 ## Context
 
@@ -15,11 +22,12 @@ deleting the complete resource have different user intent and storage consequenc
 Keep metadata, line items, ordering, currency, totals, and status immutable after
 finalization. Allow the authenticated owner to permanently delete the whole document as
 a separate lifecycle operation. Both register and detail surfaces require an explicit
-confirmation that names the document and status. Reading mode continues to suppress the
-delete control because it is a reduced-chrome review surface.
+confirmation that names the document and status. The original decision made the former
+Reading-mode surface suppress the delete control; ADR 0007 supersedes that exception,
+so the normal finalized detail view exposes the same deliberately confirmed deletion.
 
-The frontend mock contract uses `DELETE /api/v1/documents/{document_id}` for both draft
-and finalized documents. The future FastAPI implementation must authorize ownership
+The API contract uses `DELETE /api/v1/documents/{document_id}` for both draft and
+finalized documents. FastAPI must authorize ownership
 before deletion, return `404` for another owner's resource, and coordinate relational
 deletion with removal of any finalized S3 artifact.
 
@@ -33,9 +41,9 @@ artifact-retention semantics that are outside this frontend-first assignment.
 ## Consequences
 
 Users can clean up both lifecycle states without treating finalized content as editable.
-The action is irreversible in the mock and therefore uses danger styling and deliberate
-confirmation. The backend phase must define a transaction or compensating workflow for
-database and S3 cleanup before claiming production-grade deletion.
+The action is irreversible and therefore uses danger styling and deliberate
+confirmation. The backend defines a compensating workflow for database and S3 cleanup;
+production deployment and live S3 behavior still require verification.
 
 ## Revisit triggers
 

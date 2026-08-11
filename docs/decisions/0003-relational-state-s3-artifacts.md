@@ -1,7 +1,10 @@
 # ADR 0003: Relational canonical state and S3 artifacts
 
-- Status: Accepted
+- Status: Superseded by ADR 0008
 - Date: 2026-08-10
+
+> The relational-source-of-truth decision remains valid. ADR 0008 removes generated
+> PDF storage, artifact metadata, and download authorization.
 
 ## Context
 

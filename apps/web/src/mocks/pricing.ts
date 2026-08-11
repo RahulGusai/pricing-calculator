@@ -1,9 +1,9 @@
-import type { LineItem, MoneyTotals } from "../types";
+import type { LineItem, LineWrite, MoneyTotals } from "../types";
 
 const MONEY_DECIMALS = 2;
-const QUANTITY_DECIMALS = 4;
+const QUANTITY_DECIMALS = 2;
 const RATE_DECIMALS = 2;
-const QUANTITY_SCALE = 10_000n;
+const QUANTITY_SCALE = 100n;
 const RATE_SCALE = 10_000n;
 
 export class PricingValidationError extends Error {
@@ -97,7 +97,9 @@ export interface CalculatedDocument {
   totals: MoneyTotals;
 }
 
-export function calculateLine(line: LineItem): LineItem {
+type CalculableLine = LineWrite & { id: string; position: number };
+
+export function calculateLine(line: CalculableLine): LineItem {
   const quantity = parseQuantity(line.quantity);
   const unitPrice = moneyToMinor(line.unitPrice, "unitPrice");
   const subtotal = roundHalfUp(quantity * unitPrice, QUANTITY_SCALE);
@@ -143,7 +145,7 @@ export function calculateLine(line: LineItem): LineItem {
   };
 }
 
-export function calculateDocument(lines: LineItem[]): CalculatedDocument {
+export function calculateDocument(lines: CalculableLine[]): CalculatedDocument {
   const calculatedLines = lines.map(calculateLine);
   let subtotal = 0n;
   let discount = 0n;

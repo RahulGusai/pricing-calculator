@@ -9,10 +9,11 @@ over an issue-date range.
 > repository. It contains the non-negotiable pricing, ownership, lifecycle, and
 > deployment rules.
 
-> **Current checkpoint:** the FastAPI service, database migration, local artifact
-> adapter, and backend test suite are implemented. The React workspace still uses its
-> deterministic mock boundary until the documented frontend migration pass is applied.
-> Railway resources and a live deployment have not been created or verified.
+> **Current checkpoint:** FastAPI is the React application's normal local and
+> production API boundary. The frontend consumes checked-in types generated from
+> FastAPI OpenAPI, uses cookie sessions with in-memory CSRF state, and leaves MSW as
+> an explicit, in-memory test/visual mode only. Railway resources and a live
+> deployment have not been created or verified.
 
 ## Links
 
@@ -25,56 +26,60 @@ over an issue-date range.
 
 No live application URL is claimed at this checkpoint.
 
-## Frontend preview
-
-The mock workspace includes demo access for
-`avery@northstar.example` / `pricing123`.
+## Frontend visual direction
 
 | Visual | Purpose |
 | --- | --- |
-| [Approved direction](docs/visuals/revised-option-1.png) | Evolved Option 1 desktop target |
+| [Original Option 1 reference](docs/visuals/revised-option-1.png) | Historical visual baseline; current editor rules are in ADR 0007 |
 | [Light editor](docs/visuals/editor-light.jpg) | Operational editing workspace |
 | [Dark editor](docs/visuals/editor-dark.jpg) | Low-glare editing workspace |
-| [Reading editor](docs/visuals/editor-reading.jpg) | Distraction-reduced review workspace |
 | [Calculation summary](docs/visuals/editor-light-summary.jpg) | Auditable server-returned totals |
-| [Sign in](docs/visuals/login-light.jpg) | Demo authentication entry point |
+| [Sign in](docs/visuals/login-light.jpg) | Authentication entry point |
+
+The current contained, Light/Dark-only editor contract is recorded in
+[ADR 0007](docs/decisions/0007-contained-two-mode-document-editor.md); older visual
+artifacts are references rather than pixel-accurate implementation targets.
 
 ## Product scope
 
 - Email/password sign-up and login with strict per-user data isolation.
 - Draft pricing documents with editable metadata and line items.
-- Fixed or percentage discount per line, followed by percentage tax.
+- Fixed or percentage discount per line, followed by a directly entered percentage
+  tax rate.
 - Server-authoritative line and document totals with a documented rounding policy.
 - Finalized document contents that remain immutable, with confirmed permanent deletion
   available as a separate lifecycle operation.
-- Inclusive issue-date range reporting for document count, grand total, tax, and
-  discount.
-- Immutable finalized PDF artifacts in private S3-compatible object storage.
+- Inclusive issue-date range reporting with one subtotal/discount/tax/total row per
+  document currency.
+- Print-ready browser preview for drafts and finalized documents; no generated PDF or
+  object-storage subsystem.
 - Duplication of a finalized document into a new draft.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Browser["React web app"] -->|"MSW now; FastAPI /api in migration pass"| API["FastAPI"]
+    Browser["React web app"] -->|"same-origin /api proxy"| API["FastAPI"]
     API --> DB["PostgreSQL / SQLite"]
-    API --> S3["Private S3 bucket"]
 ```
 
-The relational database will be the source of truth for users, documents, line
-items, status, and totals. S3 will store immutable generated artifacts, not the
-mutable business record. Production will use PostgreSQL; SQLite remains a local and
-focused-test convenience.
+The relational database is the source of truth for users, documents, line items,
+status, and totals. Production uses PostgreSQL; SQLite remains a local and
+focused-test convenience. Printable output is rendered from authorized API data in
+the browser and is not persisted as a backend file.
 
-### Frontend - current phase
+### Frontend - implemented locally
 
 - React 19, TypeScript, and Vite.
 - React Router for protected layouts and URL-addressable workflows.
-- TanStack Query for asynchronous mock/API state and cache invalidation.
+- TanStack Query for FastAPI server state and cache invalidation.
 - React Hook Form and Zod for dynamic line-item forms and boundary validation.
-- Mock Service Worker for a network-realistic, replaceable REST boundary.
+- Generated FastAPI OpenAPI declarations plus a handwritten API adapter; MSW is
+  limited to explicit in-memory unit/visual testing.
 - Phosphor icons with text labels for consequential actions.
 - Bundled Source Sans 3 and Source Serif 4 variable fonts, avoiding runtime font requests.
+- Light and Dark appearance controls in the sidebar utility area; finalized read-only
+  behavior remains a lifecycle state rather than a third appearance mode.
 - The migration target is backend-configured USD, INR, and AED only, with no implied
   foreign-exchange conversion and currency-separated report totals.
 - Vitest, Testing Library, jest-dom, user-event, and jsdom for behavior-focused tests.
@@ -89,14 +94,13 @@ totals or create a second domain layer in React. See
 ### Backend - implemented locally
 
 - FastAPI and Pydantic schemas under `apps/api`.
-- SQLAlchemy 2 models and Alembic migration `0001_initial_schema`.
+- SQLAlchemy 2 models and Alembic migrations, including removal of the retired
+  artifact table in `0002_remove_artifacts`.
 - PostgreSQL for Railway production; SQLite only for local development and focused
   tests. Production configuration rejects SQLite.
 - Opaque, database-backed sessions in an `HttpOnly` cookie; only a session-token hash
   is stored, and authenticated mutations require a server-derived CSRF header.
-- Integer fixed-point calculations, private S3-compatible PDF storage, and short-lived
-  authorized artifact downloads. The local adapter exists only for development/tests;
-  production configuration rejects local artifact storage.
+- Integer fixed-point calculations and transactional draft/finalized lifecycle state.
 
 See [architecture](docs/architecture.md), the
 [decision log](docs/decisions/README.md), and the
@@ -108,7 +112,7 @@ See [architecture](docs/architecture.md), the
 .
 ├── apps/
 │   ├── api/          # FastAPI service, Alembic migrations, tests, and Railway config
-│   └── web/          # React frontend and mock API
+│   └── web/          # React frontend, FastAPI adapter, and test-only mock
 ├── docs/
 │   ├── decisions/    # Architecture decision records
 │   ├── research/     # First-party product-pattern evidence
@@ -119,11 +123,18 @@ See [architecture](docs/architecture.md), the
 └── README.md
 ```
 
-## Run the frontend
+## Run the full application locally
 
 Prerequisites: a current Node.js LTS release and npm.
 
 ```bash
+cd apps/api
+uv sync --all-groups
+cp .env.example .env
+uv run alembic upgrade head
+uv run uvicorn pricing_api.main:app --reload --host 0.0.0.0 --port 8000
+
+# In a second terminal:
 cd apps/web
 npm ci
 npm run dev
@@ -139,10 +150,10 @@ npm run build
 npm run test:sites
 ```
 
-The frontend implementation handoff on 2026-08-10 passed test, typecheck, lint,
-production build, and Sites packaging checks. The backend implementation, migration,
-and local API checks are documented below; frontend-to-FastAPI conformance and live
-Railway verification remain pending.
+Use the sign-up page to create a local account. Vite's real path calls
+`http://localhost:8000` in development; Railway uses Caddy's same-origin `/api`
+proxy. `VITE_API_MODE=mock` is an explicit test/visual-only opt-in and production
+builds never start it.
 
 ## Run the backend locally
 
@@ -165,25 +176,20 @@ uv run ruff check src tests
 uv run alembic check
 ```
 
-Local development uses SQLite and a local PDF directory from `.env`; neither is a
-valid production configuration. See [deployment guidance](docs/deployment.md) for
-Railway PostgreSQL and private S3-compatible Bucket configuration.
+Local development uses SQLite by default; it never creates a PDF directory. See
+[deployment guidance](docs/deployment.md) for the Railway PostgreSQL configuration.
 
-## Mock-first contract
+## FastAPI contract boundary
 
-The frontend talks to Mock Service Worker handlers rather than importing fixtures
-inside components. The mock boundary models latency, authentication, ownership,
-validation, draft/finalized conflicts, reports, and server-shaped decimal-string
-totals. Deterministic fixtures include the assignment reference document and an
-isolated second tenant.
+FastAPI's generated OpenAPI schema is the browser contract source of truth.
+`apps/web/src/lib/generated/openapi.ts` is generated with `npm run generate:api`,
+while `apps/web/src/lib/api.ts` remains the component-facing adapter. The browser
+uses an HTTP-only cookie, stores only the CSRF token in module memory, and sends no
+bearer access token. UI writes submit input-only DTOs; totals, lifecycle status, and
+currency-separated report groups come from the API.
 
-FastAPI's generated OpenAPI schema is now the contract source of truth. The required
-mock-to-real migration is documented in
-[the frontend migration plan](docs/frontend-backend-migration-plan.md), including
-cookie sessions, CSRF, USD/INR/AED configuration, input/output DTO separation,
-two-decimal validation, and currency-separated reports. The mock must not be retired
-until that conformance pass compares status codes, error envelopes, field names,
-decimal serialization, and lifecycle behavior.
+MSW remains deterministic coverage for the same contract, including cookie/CSRF
+semantics, but it is non-persistent and starts only with `VITE_API_MODE=mock`.
 
 ## Calculation policy
 
@@ -234,17 +240,16 @@ The assignment reference must produce:
   owner-authorized operation requiring `{ "confirm": true }` and a deliberate UI
   confirmation.
 - Duplication creates new IDs and a new draft; it never reopens the source.
-- Deleting a finalized document first records a deletion intent, then removes its
-  generated artifact, then removes the database record. A failed object deletion
-  leaves the document intact and returns a clear error; a retry safely completes an
-  interrupted deletion.
-- Artifact access is authorized by the API before a short-lived download is issued.
+- Deleting a draft or finalized document removes the owner-scoped relational record
+  after explicit confirmation.
+- Preview remains available for drafts and finalized documents and can invoke the
+  browser's print dialog; it does not generate or download a backend PDF.
 
 ## Deployment intent
 
 The monorepo is configured for two independently built Railway services plus Railway
 PostgreSQL. The frontend will serve its production bundle and route API traffic to
-FastAPI; the API alone receives database and S3 credentials. The API's Railway config
+FastAPI; the API alone receives database and session secrets. The API's Railway config
 runs Alembic before deployment and exposes `/health`. Railway services, domains,
 environment values, and live URLs have not yet been configured or verified.
 
@@ -253,17 +258,20 @@ environment values, and live URLs have not yet been configured or verified.
 - Report date bounds are inclusive and default to all document statuses.
 - Currency is stored per document and limited to backend-configured USD, INR, and AED.
 - Money, quantity, and rates accept at most two decimal places and normalize to exactly
-  two decimal places in responses.
+  two decimal places in responses. Browser fields prevent a third fractional digit
+  from entering form state; FastAPI still validates and normalizes every submitted
+  decimal string.
 - A draft may be empty, but finalization requires at least one valid line.
-- Railway's ephemeral filesystem is never durable document storage.
+- No filesystem or bucket is required because canonical documents remain relational
+  and printable output is browser-only.
 
 Before production, add session-device management, optimistic-concurrency versioning,
-a durable artifact outbox, audit events, structured tracing, rate limiting, backups,
-S3 lifecycle/versioning, security scanning, and measured load/accessibility budgets.
+audit events, structured tracing, rate limiting, backups, security scanning, and
+measured load/accessibility budgets.
 
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md) before making changes and follow
 [CONTRIBUTING.md](CONTRIBUTING.md). The selected Option 1 direction is approved for
-frontend work. Use the [frontend migration plan](docs/frontend-backend-migration-plan.md)
-when replacing MSW with the FastAPI contract.
+frontend work. The [frontend migration record](docs/frontend-backend-migration-plan.md)
+defines the FastAPI contract and completed cutover scope.

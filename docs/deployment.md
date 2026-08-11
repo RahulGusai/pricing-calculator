@@ -1,33 +1,58 @@
 # Railway deployment
 
-This repository deploys as two application services from one Git repository. Railway
-Postgres owns canonical users, structured pricing documents, lifecycle state, and
-totals; a private S3 bucket stores immutable finalized export artifacts. The browser
-talks only to the web origin: Caddy serves the React bundle and proxies `/api/*` to
-FastAPI over Railway's private network.
+Deploy the repository as two isolated application services plus Railway PostgreSQL.
+The recommended topology exposes only the `web` service publicly. Caddy serves the
+React bundle and reverse-proxies browser requests under `/api/*` to FastAPI over
+Railway private networking.
 
-## Project topology
+No bucket, volume, S3 credential, or local artifact directory is required. PostgreSQL
+stores the complete canonical document record, while the frontend provides the only
+printable preview.
 
-Create an empty Railway project, then add these resources in the same environment:
+## Target topology
 
-| Railway resource | Source | Repository root directory | Config-as-code path | Public domain |
+```mermaid
+flowchart LR
+    Browser["Browser"] -->|"HTTPS"| Web["web · React + Caddy"]
+    Web -->|"private HTTP /api"| API["api · FastAPI"]
+    API -->|"private DATABASE_URL"| PG["Postgres"]
+```
+
+Use these exact service names if copying the reference variables below:
+
+| Service | Source | Root Directory | Railway config path | Public domain |
 | --- | --- | --- | --- | --- |
+| `api` | This GitHub repository | `/apps/api` | `/apps/api/railway.json` | Optional |
 | `web` | This GitHub repository | `/apps/web` | `/apps/web/railway.json` | Required |
-| `api` | This GitHub repository | `/apps/api` | `/apps/api/railway.json` | Recommended for reviewer access; optional otherwise |
-| `Postgres` | Railway PostgreSQL | n/a | n/a | No |
-| `documents` | AWS S3 or a Railway Storage Bucket | n/a | n/a | No |
+| `Postgres` | Railway PostgreSQL | n/a | n/a | Never required by the app |
 
-Use the service names above if copying the variable references in this guide. Railway references are service-name sensitive.
+Railway treats Root Directory and the custom config path as separate settings. The
+config path remains absolute from the repository root even after a service Root
+Directory is set.
 
-The Root Directory and config file are separate settings. Railway does not resolve the config-as-code path relative to Root Directory, so enter the absolute repository paths shown above. Connect both application services to the same branch. Each `railway.json` contains repository-root watch patterns so a frontend-only change does not rebuild the API and vice versa.
+## 1. Prepare the repository
 
-The web image is built with Node 24 and `npm ci`, then served by Caddy. It does not run Vite's development or preview server in production. Caddy provides SPA fallback routing, an explicit `/health` response, and the private API proxy.
+1. Run the local checks described in the root README.
+2. Commit the generated OpenAPI declaration, Alembic migration, Dockerfiles,
+   `railway.json` files, and this guide.
+3. Push the branch that Railway should deploy to GitHub.
+4. Confirm no `.env`, database, generated PDF, or credential file is committed.
 
-## Service variables
+## 2. Create the Railway project and PostgreSQL
 
-### API
+1. Create an empty Railway project.
+2. Use **+ New → Database → PostgreSQL** and keep the service name `Postgres`.
+3. Do not create a TCP proxy for application traffic and do not add a storage bucket.
+4. Keep all three services in the same Railway project and environment so reference
+   variables and private networking resolve correctly.
 
-Set these variables on `api`:
+## 3. Configure the API service
+
+1. Add an empty service named `api` and connect it to the GitHub repository.
+2. In **Settings → Source**, select the deployment branch.
+3. Set **Root Directory** to `/apps/api`.
+4. Set the custom Railway config path to `/apps/api/railway.json`.
+5. Add these service variables:
 
 ```dotenv
 APP_ENVIRONMENT=production
@@ -39,161 +64,126 @@ PRICING_DEFAULT_CURRENCY=USD
 SESSION_COOKIE_NAME=pricing_session
 SESSION_COOKIE_SECURE=true
 SESSION_TTL_HOURS=8
-CSRF_SECRET=replace-with-a-unique-high-entropy-secret
-ARTIFACT_STORAGE=s3
-S3_BUCKET=replace-for-aws
-S3_REGION=replace-for-aws
-AWS_ACCESS_KEY_ID=replace-for-aws
-AWS_SECRET_ACCESS_KEY=replace-for-aws
-S3_URL_STYLE=virtual
-S3_PRESIGNED_URL_TTL_SECONDS=300
+CSRF_SECRET=replace-with-a-long-unique-random-secret
 ```
 
-`APP_ENVIRONMENT=production` makes FastAPI refuse SQLite, local artifact storage,
-an insecure session cookie, or the development CSRF secret at startup. The three
-configured currencies are USD, INR, and AED; all use two decimal places. Leave
-`CORS_ALLOWED_ORIGINS` empty for the same-origin Caddy topology. `PORT` is deliberately
-fixed. The API process binds to it, Railway uses it for health checks and public
-routing, and Caddy uses the same port over private networking. `DATABASE_URL`
-references the Postgres service's private connection string; do not substitute
-`DATABASE_PUBLIC_URL` for service-to-service traffic.
+Generate `CSRF_SECRET` with a password manager or cryptographically secure secret
+generator. Do not reuse the development value and do not expose it to the web service.
 
-`S3_URL_STYLE` and `S3_PRESIGNED_URL_TTL_SECONDS` are optional. Virtual-hosted addressing is the production default, and five-minute presigned links limit the exposure of private artifacts. Store object keys and metadata in Postgres rather than permanent signed URLs.
+6. Deploy `api`. Its config runs `alembic upgrade head` as a pre-deploy command before
+   starting Uvicorn. A failed migration stops the new deployment.
+7. Confirm the deployment health check for `/health` passes.
+8. A public API domain is optional. Generate one only if reviewers need direct access
+   to `/docs`, `/openapi.json`, or `/health`; the application itself does not need it.
 
-Keep `CSRF_SECRET` and storage credentials on `api` only. Never add them to `web`,
-prefix them with `VITE_`, or commit them to an environment file. Manually entered AWS
-credentials should be sealed in Railway after verification.
+The checked-in Uvicorn command binds to `::` and port `$PORT`, which works with
+Railway's current dual-stack private network and older IPv6-only environments.
 
-### Web
+## 4. Configure the web reverse proxy
 
-Set this variable on `web`:
+1. Add a second empty service named `web` and connect it to the same repository and
+   branch.
+2. Set **Root Directory** to `/apps/web`.
+3. Set the custom Railway config path to `/apps/web/railway.json`.
+4. Add this service variable:
 
 ```dotenv
-API_UPSTREAM=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8000
+API_UPSTREAM=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}
 ```
 
-`API_UPSTREAM` is expanded by Caddy at container startup. The `http` scheme is intentional: the connection remains inside Railway's encrypted private network, where Railway's public TLS termination is not involved. Browser code should call relative URLs such as `/api/v1/documents`; it cannot resolve `railway.internal` itself.
+`api.PORT` is the explicit `PORT=8000` variable created in the previous section; it is
+not Railway's automatically injected runtime port. Internal traffic uses `http`, not
+`https`, because it stays inside Railway's encrypted private network.
 
-This same-origin arrangement avoids CORS configuration and avoids baking an environment-specific API hostname into the Vite bundle.
+5. Deploy `web`. The Docker image builds the Vite bundle and serves it with Caddy.
+6. In **Settings → Networking → Public Networking**, choose **Generate Domain** for
+   `web`. This is the only URL users need.
 
-## Object storage
+Caddy already implements the reverse proxy:
 
-The API uses one S3-compatible configuration contract for AWS S3, Railway Buckets, and local MinIO.
-
-### AWS S3
-
-For Amazon S3, set:
-
-```dotenv
-S3_BUCKET=your-private-bucket
-S3_REGION=your-aws-region
-AWS_ACCESS_KEY_ID=your-access-key-id
-AWS_SECRET_ACCESS_KEY=your-secret-access-key
-S3_URL_STYLE=virtual
-S3_PRESIGNED_URL_TTL_SECONDS=300
+```caddyfile
+handle /api/* {
+    reverse_proxy {$API_UPSTREAM}
+}
 ```
 
-Leave `S3_ENDPOINT_URL` unset. Use a private bucket with public access blocked and a least-privilege IAM principal restricted to the required bucket and object prefix. Prefer AWS S3 when the requirement literally names Amazon S3 or needs server-side encryption controls, versioning, lifecycle policies, retention, or object lock.
+Browser requests therefore remain same-origin, `CORS_ALLOWED_ORIGINS` stays empty, and
+the API session cookie works without exposing a second public service.
 
-### Railway Storage Bucket
+## 5. Verify the deployed stack
 
-If S3-compatible storage is acceptable, add a Railway Bucket named `documents` and set these references on `api`:
+Run these checks against the generated web domain:
 
-```dotenv
-S3_BUCKET=${{documents.BUCKET}}
-S3_REGION=${{documents.REGION}}
-S3_ENDPOINT_URL=${{documents.ENDPOINT}}
-AWS_ACCESS_KEY_ID=${{documents.ACCESS_KEY_ID}}
-AWS_SECRET_ACCESS_KEY=${{documents.SECRET_ACCESS_KEY}}
-S3_URL_STYLE=virtual
-S3_PRESIGNED_URL_TTL_SECONDS=300
-```
+1. `GET /health` returns `200` and `ok` from Caddy.
+2. `GET /api/v1/config/currencies` returns USD, INR, and AED through the proxy.
+3. Sign up with a fresh test account and confirm login survives a page refresh.
+4. Create the documented `421.50` pricing example and wait for autosave to finish.
+5. Open Preview, verify the print layout, then finalize the document.
+6. Confirm finalized content is read-only and no PDF download action is present.
+7. Create documents in at least two currencies, run an inclusive date report, and
+   verify one totals row appears for each currency.
+8. Redeploy `api` and confirm the account and documents still exist in PostgreSQL.
+9. Delete one draft and one finalized document through the explicit confirmation flow.
 
-Use `documents.BUCKET`, not `documents.RAILWAY_BUCKET_NAME`; the latter is a display name rather than the S3 API bucket name.
+## Alternative: public API without Caddy proxy
 
-Railway Buckets are private and support common S3 operations, presigned URLs, and multipart uploads. At the time this repository was prepared, they did not support S3 server-side encryption options, object versioning, object lock, or lifecycle configuration. Record the chosen provider in the deployment handoff rather than presenting Railway Buckets as Amazon S3. If browser-direct presigned uploads are introduced later, configure a narrow bucket CORS policy for the web origin.
+The same-origin Caddy route is recommended. If a separate public API is required:
 
-## First deployment
+1. Generate public domains for both `api` and `web`.
+2. Build the frontend with `VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}`.
+3. Set `CORS_ALLOWED_ORIGINS=https://${{web.RAILWAY_PUBLIC_DOMAIN}}` on `api`.
+4. Keep `SESSION_COOKIE_SECURE=true` and verify credentialed CORS and cookie behavior
+   in the deployed browser.
 
-1. Push the repository to GitHub and connect it to the empty Railway project.
-2. Provision `Postgres` and, if selected, the `documents` Railway Bucket.
-3. Create `api` and `web` as empty services, connect both to the repository, then set their Root Directory and config-as-code paths from the topology table.
-4. Add the API variables. For AWS, enter and test the credentials before sealing them. For a Railway Bucket, use the reference variables above.
-5. Add `API_UPSTREAM` to `web`.
-6. Deploy `api` first. Its pre-deploy command runs Alembic against Postgres before the new API revision starts.
-7. Deploy `web`.
-8. In each application service's **Settings → Networking**, generate a Railway domain. The web domain is the user-facing URL. The API domain makes `/docs`, `/openapi.json`, and `/health` convenient for evaluation; remove that domain in a private production topology if direct API access is unnecessary.
-9. Verify the web `/health`, API `/health`, one browser request under `/api/*`, database persistence across an API redeploy, and an S3 upload/download round trip.
+This alternative adds CORS and public API exposure without improving the normal user
+flow, so use it only when direct API access is an explicit requirement.
 
-Do not expose Postgres with a TCP proxy for normal application traffic and do not make the document bucket public.
+## Migrations and rollback
 
-## Migrations and health checks
+`apps/api/railway.json` runs the Alembic pre-deploy command in a separate container
+with access to private networking and service variables. Migration `0002` removes the
+retired artifact metadata table. It does not inspect or delete historical local files;
+those files are outside the deployed architecture.
 
-The API Railway config runs:
-
-```sh
-uv run alembic upgrade head
-```
-
-as a pre-deploy command. Railway runs it in a separate container with private networking and service variables available. A non-zero exit stops the deployment before traffic moves to the new revision. Keep migrations backward-compatible with the previous application revision and never run development seed data from the production migration command.
-
-Both application services expose unauthenticated, fast health endpoints:
-
-- `web /health` is answered directly by Caddy and does not fall through to `index.html`.
-- `api /health` verifies the API is ready to accept traffic. It should not perform slow object-storage operations.
-
-Railway deployment health checks gate traffic cutover; they are not continuous uptime monitoring. Configure an external monitor separately if continuous checks are required.
+Never rewrite an applied migration. To roll the application back across a schema
+change, deploy compatible code or apply a deliberate forward migration after reviewing
+the data consequences.
 
 ## Troubleshooting
 
 ### Railway ignores `railway.json`
 
-Confirm the service's config-as-code path is `/apps/web/railway.json` or `/apps/api/railway.json`. Root Directory does not change where Railway searches for a custom config file.
+Confirm the custom config paths are `/apps/api/railway.json` and
+`/apps/web/railway.json`. Root Directory does not make the config path relative.
 
-### `npm ci` reports an out-of-sync lockfile
+### `/api/*` returns 502 from the web domain
 
-Run `npm install` in `apps/web`, review the dependency change, and commit the resulting `package-lock.json`. Do not replace `npm ci` with `npm install` in the production image.
+- Confirm both services are in the same project and environment.
+- Confirm `api` has the explicit variable `PORT=8000`.
+- Confirm `API_UPSTREAM` references the exact service name `api`.
+- Confirm Uvicorn is listening on `::` and the API `/health` check is passing.
+- Do not use the API public URL as the first workaround; fix private networking.
 
-### The web deployment is healthy but `/api/*` returns 502
+### API deployment fails before startup
 
-Check all of the following:
+Inspect the pre-deploy logs. Verify `DATABASE_URL=${{Postgres.DATABASE_URL}}` resolves,
+PostgreSQL is healthy, and the migration exits successfully.
 
-- `API_UPSTREAM` includes `http://`, the exact API service reference, and port `8000`.
-- `api` and `web` are in the same Railway project and environment.
-- `api` has `PORT=8000` and listens on all interfaces (`::` or `0.0.0.0`), not only localhost.
-- The API deployment is active and its own `/health` returns 200.
+### Login works but disappears after refresh
 
-Do not replace the private hostname with a public domain as a first fix; that adds an unnecessary public network hop.
-
-### Railway reports `service unavailable` during a health check
-
-The application is usually listening on a different port or interface. Confirm Caddy reads Railway's `PORT`, the API reads `PORT=8000`, and each Railway health-check path is exactly `/health`.
+Confirm the browser uses the web domain for `/api/*`, `SESSION_COOKIE_SECURE=true`,
+and no direct `VITE_API_URL` bypasses Caddy in the recommended topology.
 
 ### Refreshing a frontend route returns 404
 
-Confirm the web service is using the repository Caddyfile and that the final image contains the Vite output under `/srv`. The `try_files {path} /index.html` fallback is what lets React Router handle deep links.
-
-### The API cannot connect to Postgres
-
-Confirm `DATABASE_URL` is the reference `${{Postgres.DATABASE_URL}}`, the service is named `Postgres`, and the migration container is in the same environment. Inspect pre-deploy logs separately from runtime logs.
-
-### S3 requests fail with a signature or redirect error
-
-Verify the bucket, region, endpoint, URL style, and credentials as one set. Omit `S3_ENDPOINT_URL` for AWS S3. For a Railway Bucket, use its base `ENDPOINT` and API `BUCKET` value with `S3_URL_STYLE=virtual`. A credential from one Railway environment cannot access another environment's bucket instance.
-
-### A document URL returns 403 after several minutes
-
-Presigned URLs expire by design. Request a new URL from the API instead of storing or caching the signed URL as document metadata.
+Confirm the web image is using the checked-in Caddyfile. Its `try_files` rule routes
+unknown paths to `index.html` for React Router.
 
 ## References
 
-- [Deploying a monorepo on Railway](https://docs.railway.com/guides/deploying-a-monorepo)
-- [Railway build configuration and root directories](https://docs.railway.com/builds/build-configuration)
+- [Railway monorepo deployment](https://docs.railway.com/deployments/monorepo)
 - [Railway config as code](https://docs.railway.com/config-as-code)
 - [Railway private networking](https://docs.railway.com/private-networking)
-- [Railway SPA routing with Caddy](https://docs.railway.com/guides/spa-routing-configuration)
 - [Railway PostgreSQL](https://docs.railway.com/databases/postgresql)
-- [Railway Storage Buckets](https://docs.railway.com/storage-buckets)
 - [Railway pre-deploy commands](https://docs.railway.com/deployments/pre-deploy-command)
-- [Railway health checks](https://docs.railway.com/deployments/healthchecks)
-- [Vite static deployment](https://vite.dev/guide/static-deploy.html)
+- [Railway domains](https://docs.railway.com/networking/domains/working-with-domains)

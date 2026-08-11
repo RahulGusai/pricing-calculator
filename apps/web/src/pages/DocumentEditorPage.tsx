@@ -2,16 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowLeft,
   CalendarBlank,
-  CaretDown,
   Check,
   CheckCircle,
-  Columns,
   Copy,
   DotsSixVertical,
   DotsThree,
   Eye,
-  Info,
   LockKey,
+  PencilSimple,
   Plus,
   Trash,
   WarningCircle,
@@ -19,6 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type ChangeEvent,
   useEffect,
   useMemo,
   useRef,
@@ -30,66 +29,142 @@ import { z } from "zod";
 
 import { CalculationSummary } from "../components/CalculationSummary";
 import { DocumentPreviewDialog } from "../components/DocumentPreviewDialog";
-import { ModeSwitch } from "../components/ModeSwitch";
-import { useWorkspaceMode } from "../context/ModeContext";
 import {
+  ApiClientError,
   deleteDocument,
   duplicateDocument,
   finalizeDocument,
+  getCurrencyConfig,
   getDocument,
   updateDocument,
 } from "../lib/api";
 import { formatCurrencySymbol, formatDate, formatMoney } from "../lib/format";
 import {
-  SUPPORTED_CURRENCIES,
-  type LineItem,
+  type CurrencyCode,
+  type LineWrite,
   type PricingDocument,
   type UpdateDocumentInput,
 } from "../types";
 
-const decimalPattern = /^\d+(?:\.\d{1,4})?$/;
-const moneyPattern = /^\d+(?:\.\d{1,2})?$/;
+const decimalPattern = /^\d+(?:\.\d{0,2})?$/;
+const decimalEntryPattern = /^\d*(?:\.\d{0,2})?$/;
+const DESCRIPTION_MAX_LENGTH = 240;
+
+function toScaledDecimal(value: string): bigint {
+  if (!decimalPattern.test(value)) return -1n;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(`${whole}${fraction.padEnd(2, "0")}`);
+}
+
+const quantitySchema = z
+  .string()
+  .regex(decimalPattern, "Enter a valid quantity")
+  .refine((value) => toScaledDecimal(value) >= 100n, "Quantity must be at least 1.00");
+const moneySchema = z.string().regex(decimalPattern, "Enter a valid amount");
+const rateSchema = moneySchema.refine(
+  (value) => toScaledDecimal(value) <= 10_000n,
+  "Use a rate from 0.00 through 100.00",
+);
 
 const lineSchema = z.object({
-  id: z.string().min(1),
-  position: z.number().int().positive(),
+  id: z.string().min(1).optional().nullable(),
   name: z.string().trim().min(1, "Enter an item name"),
-  description: z.string(),
-  quantity: z.string().regex(decimalPattern, "Use a positive number with up to 4 decimals"),
-  unitPrice: z.string().regex(moneyPattern, "Use an amount with up to 2 decimals"),
+  description: z.string().max(
+    DESCRIPTION_MAX_LENGTH,
+    `Keep the description within ${DESCRIPTION_MAX_LENGTH} characters`,
+  ),
+  quantity: quantitySchema,
+  unitPrice: moneySchema,
   discountType: z.enum(["none", "percentage", "fixed"]),
-  discountValue: z.string().regex(moneyPattern, "Use a value with up to 2 decimals"),
-  taxRate: z.string().regex(moneyPattern, "Use a rate with up to 2 decimals"),
-  subtotal: z.string(),
-  discount: z.string(),
-  tax: z.string(),
-  grandTotal: z.string(),
+  discountValue: moneySchema,
+  taxRate: rateSchema,
+}).superRefine((line, context) => {
+  if (line.discountType === "percentage" && toScaledDecimal(line.discountValue) > 10_000n) {
+    context.addIssue({
+      code: "custom",
+      path: ["discountValue"],
+      message: "Use a percentage from 0.00 through 100.00",
+    });
+  }
+  if (line.discountType === "none" && toScaledDecimal(line.discountValue) !== 0n) {
+    context.addIssue({
+      code: "custom",
+      path: ["discountValue"],
+      message: "No-discount lines must use 0.00",
+    });
+  }
 });
 
 const documentSchema = z.object({
-  title: z.string().trim().min(2, "Give this document a title"),
-  customerName: z.string().trim().min(2, "Enter a customer name"),
+  title: z.string().trim().max(250),
+  customerName: z.string().trim().max(250),
   documentDate: z.iso.date("Choose a valid date"),
   validUntil: z.iso.date("Choose a valid date"),
-  currency: z.enum(SUPPORTED_CURRENCIES),
-  lines: z.array(lineSchema).min(1, "Add at least one line item"),
+  currency: z.string().min(1, "Choose a currency"),
+  lines: z.array(lineSchema),
+}).refine((value) => value.validUntil >= value.documentDate, {
+  path: ["validUntil"],
+  message: "Valid until cannot be before document date",
 });
 
-function toFormValues(document: PricingDocument): UpdateDocumentInput {
+type DocumentFormValues = z.infer<typeof documentSchema>;
+
+function toFormValues(document: PricingDocument): DocumentFormValues {
   return {
     title: document.title,
     customerName: document.customerName,
     documentDate: document.documentDate,
     validUntil: document.validUntil,
     currency: document.currency,
-    lines: document.lines,
+    lines: document.lines.map(({ id, name, description, quantity, unitPrice, discountType, discountValue, taxRate }) => ({
+      id,
+      name,
+      description,
+      quantity,
+      unitPrice,
+      discountType,
+      discountValue,
+      taxRate,
+    })),
   };
 }
 
-function newLine(position: number): LineItem {
+function toUpdateInput(values: DocumentFormValues): UpdateDocumentInput {
+  const normalizeDecimal = (value: string) => value.endsWith(".") ? value.slice(0, -1) : value;
+
   return {
-    id: crypto.randomUUID(),
-    position,
+    ...values,
+    currency: values.currency as CurrencyCode,
+    lines: values.lines.map((line) => ({
+      ...(line.id ? { id: line.id } : {}),
+      name: line.name.trim(),
+      description: line.description,
+      quantity: normalizeDecimal(line.quantity),
+      unitPrice: normalizeDecimal(line.unitPrice),
+      discountType: line.discountType,
+      discountValue: normalizeDecimal(line.discountValue),
+      taxRate: normalizeDecimal(line.taxRate),
+    })),
+  };
+}
+
+function acceptDecimalEntry(
+  event: ChangeEvent<HTMLInputElement>,
+  currentValue: string,
+  onAccepted: (event: ChangeEvent<HTMLInputElement>) => unknown,
+): void {
+  if (decimalEntryPattern.test(event.currentTarget.value)) {
+    void onAccepted(event);
+    return;
+  }
+
+  // React Hook Form intentionally keeps these inputs uncontrolled. Restore the
+  // last accepted string immediately so a third fractional digit never appears.
+  event.currentTarget.value = currentValue;
+}
+
+function newLine(): LineWrite {
+  return {
     name: "New item",
     description: "",
     quantity: "1",
@@ -97,10 +172,6 @@ function newLine(position: number): LineItem {
     discountType: "none",
     discountValue: "0.00",
     taxRate: "0.00",
-    subtotal: "0.00",
-    discount: "0.00",
-    tax: "0.00",
-    grandTotal: "0.00",
   };
 }
 
@@ -120,8 +191,6 @@ export function DocumentEditorPage() {
   const { documentId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { mode } = useWorkspaceMode();
-  const [showDescription, setShowDescription] = useState(true);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const previewRef = useRef<HTMLDialogElement>(null);
@@ -135,7 +204,13 @@ export function DocumentEditorPage() {
     enabled: Boolean(documentId),
   });
 
-  const form = useForm<UpdateDocumentInput>({
+  const currenciesQuery = useQuery({
+    queryKey: ["currency-config"],
+    queryFn: getCurrencyConfig,
+    staleTime: Infinity,
+  });
+
+  const form = useForm<DocumentFormValues>({
     resolver: zodResolver(documentSchema),
     mode: "onBlur",
     defaultValues: {
@@ -164,15 +239,30 @@ export function DocumentEditorPage() {
   }, [documentQuery.data, form]);
 
   const saveMutation = useMutation({
-    mutationFn: (values: UpdateDocumentInput) => updateDocument(documentId, values),
-    onSuccess: (saved) => {
+    mutationFn: (values: DocumentFormValues) => updateDocument(documentId, toUpdateInput(values)),
+    onSuccess: (saved, submittedValues) => {
       queryClient.setQueryData(["document", documentId], saved);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      form.reset(toFormValues(saved), { keepValues: true });
+      const latestValues = form.getValues();
+      const hasNewerEdits = JSON.stringify(latestValues) !== JSON.stringify(submittedValues);
+      // Preserve only edits made after this request started. When the form still
+      // matches the snapshot, reset it cleanly so autosave settles at "Saved".
+      form.reset(toFormValues(saved), hasNewerEdits ? { keepDirtyValues: true } : undefined);
       setLastSavedAt(new Date());
       setNotice(null);
     },
-    onError: (error) => setNotice(error instanceof Error ? error.message : "Could not save changes"),
+    onError: (error) => {
+      if (error instanceof ApiClientError) {
+        Object.entries(error.body.error.fields ?? {}).forEach(([field, message]) => {
+          form.setError(field as never, { type: "server", message });
+        });
+        if (error.status === 409 && error.body.error.code === "DOCUMENT_FINALIZED") {
+          void queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+          void queryClient.refetchQueries({ queryKey: ["document", documentId] });
+        }
+      }
+      setNotice(error instanceof Error ? error.message : "Could not save changes");
+    },
   });
 
   const finalizeMutation = useMutation({
@@ -185,7 +275,14 @@ export function DocumentEditorPage() {
       finalizeRef.current?.close();
       setNotice("Document finalized. Editing is now locked.");
     },
-    onError: (error) => setNotice(error instanceof Error ? error.message : "Could not finalize document"),
+    onError: (error) => {
+      if (error instanceof ApiClientError) {
+        Object.entries(error.body.error.fields ?? {}).forEach(([field, message]) => {
+          form.setError(field as never, { type: "server", message });
+        });
+      }
+      setNotice(error instanceof Error ? error.message : "Could not finalize document");
+    },
   });
 
   const duplicateMutation = useMutation({
@@ -211,16 +308,19 @@ export function DocumentEditorPage() {
 
   const document = documentQuery.data;
   const isFinalized = document?.status === "finalized";
-  const isReading = mode === "reading";
-  const isReadOnly = Boolean(isFinalized || isReading);
-  const selectedCurrency = watchedValues.currency ?? document?.currency ?? "USD";
+  const isReadOnly = Boolean(isFinalized);
+  const selectedCurrency = (watchedValues.currency ?? document?.currency ?? "USD") as CurrencyCode;
   const currencySymbol = formatCurrencySymbol(selectedCurrency);
+  const availableCurrencies = currenciesQuery.data?.currencies ??
+    (document ? [{ code: document.currency, minorUnit: 2 }] : []);
 
   useEffect(() => {
     if (!document || isReadOnly || !form.formState.isDirty || saveMutation.isPending) return;
 
     const timeout = window.setTimeout(() => {
-      void form.handleSubmit((values) => saveMutation.mutate(values))();
+      void form.trigger(undefined, { shouldFocus: false }).then((isValid) => {
+        if (isValid) saveMutation.mutate(structuredClone(form.getValues()));
+      });
     }, 850);
     return () => window.clearTimeout(timeout);
   }, [document, form, form.formState.isDirty, isReadOnly, saveMutation, watchedValues]);
@@ -231,7 +331,10 @@ export function DocumentEditorPage() {
         const target = event.target as HTMLElement;
         if (target.tagName === "TEXTAREA") return;
         event.preventDefault();
-        append(newLine(fields.length + 1), { shouldFocus: true });
+        append(newLine(), {
+          shouldFocus: true,
+          focusName: `lines.${fields.length}.name`,
+        });
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -249,7 +352,7 @@ export function DocumentEditorPage() {
     if (!form.formState.isDirty || isFinalized) return document;
     let result: PricingDocument | undefined;
     await form.handleSubmit(async (values) => {
-      result = await saveMutation.mutateAsync(values);
+      result = await saveMutation.mutateAsync(structuredClone(values));
     })();
     return result;
   }
@@ -268,11 +371,6 @@ export function DocumentEditorPage() {
   function reorderLine(from: number, to: number) {
     if (to < 0 || to >= fields.length) return;
     move(from, to);
-    window.requestAnimationFrame(() => {
-      form.getValues("lines").forEach((_line, index) => {
-        form.setValue(`lines.${index}.position`, index + 1, { shouldDirty: true });
-      });
-    });
   }
 
   if (documentQuery.isLoading) return <EditorSkeleton />;
@@ -289,7 +387,7 @@ export function DocumentEditorPage() {
   }
 
   return (
-    <div className={`editor-page ${isReading ? "is-reading" : ""}`}>
+    <div className="editor-page">
       <header className="editor-toolbar">
         <div className="editor-toolbar-context">
           <Link to="/documents" className="mobile-back" aria-label="Back to documents">
@@ -316,30 +414,7 @@ export function DocumentEditorPage() {
           </div>
         </div>
 
-        <ModeSwitch />
-
         <div className="editor-toolbar-actions">
-          {!isReading && !isFinalized && (
-            <details className="columns-menu">
-              <summary className="button quiet">
-                <Columns size={18} aria-hidden="true" />
-                Columns
-                <CaretDown size={14} aria-hidden="true" />
-              </summary>
-              <div>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showDescription}
-                    onChange={(event) => setShowDescription(event.target.checked)}
-                  />
-                  Description
-                </label>
-                <label><input type="checkbox" checked readOnly /> Discount</label>
-                <label><input type="checkbox" checked readOnly /> Tax</label>
-              </div>
-            </details>
-          )}
           <button
             type="button"
             className="button secondary"
@@ -350,18 +425,16 @@ export function DocumentEditorPage() {
             <Eye size={18} aria-hidden="true" />
             <span>Preview</span>
           </button>
-          {!isReading && (
-            <button
-              type="button"
-              className="button danger-outline"
-              aria-label="Delete document"
-              onClick={() => deleteRef.current?.showModal()}
-              disabled={deleteMutation.isPending}
-            >
-              <Trash size={18} aria-hidden="true" />
-              <span>Delete</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className="button danger-outline"
+            aria-label="Delete document"
+            onClick={() => deleteRef.current?.showModal()}
+            disabled={deleteMutation.isPending}
+          >
+            <Trash size={18} aria-hidden="true" />
+            <span>Delete</span>
+          </button>
           {isFinalized ? (
             <button
               type="button"
@@ -374,18 +447,16 @@ export function DocumentEditorPage() {
               <span>Duplicate</span>
             </button>
           ) : (
-            !isReading && (
-              <button
-                type="button"
-                className="button primary"
-                aria-label="Finalize"
-                onClick={() => finalizeRef.current?.showModal()}
-                disabled={saveMutation.isPending || finalizeMutation.isPending}
-              >
-                <Check size={18} weight="bold" aria-hidden="true" />
-                <span>Finalize</span>
-              </button>
-            )
+            <button
+              type="button"
+              className="button primary"
+              aria-label="Finalize"
+              onClick={() => finalizeRef.current?.showModal()}
+              disabled={saveMutation.isPending || finalizeMutation.isPending}
+            >
+              <Check size={18} weight="bold" aria-hidden="true" />
+              <span>Finalize</span>
+            </button>
           )}
         </div>
       </header>
@@ -403,22 +474,29 @@ export function DocumentEditorPage() {
       <div className="editor-workspace">
         <form className="document-sheet" onSubmit={(event) => event.preventDefault()}>
           <section className="document-heading">
-            {isReadOnly ? (
-              <h1>{form.getValues("title")}</h1>
-            ) : (
-              <div>
-                <label className="sr-only" htmlFor="document-title">Document title</label>
-                <textarea
-                  id="document-title"
-                  rows={1}
-                  {...form.register("title")}
-                  aria-invalid={Boolean(form.formState.errors.title)}
-                />
-                {form.formState.errors.title && (
-                  <small className="field-error">{form.formState.errors.title.message}</small>
+            <div className="document-title-identity">
+              <span className="document-title-icon" aria-hidden="true">
+                <PencilSimple size={20} weight="bold" />
+              </span>
+              <div className="document-title-field">
+                {isReadOnly ? (
+                  <h1>{form.getValues("title")}</h1>
+                ) : (
+                  <>
+                    <label className="sr-only" htmlFor="document-title">Document title</label>
+                    <input
+                      id="document-title"
+                      placeholder="e.g. Q3 implementation proposal"
+                      {...form.register("title")}
+                      aria-invalid={Boolean(form.formState.errors.title)}
+                    />
+                    {form.formState.errors.title && (
+                      <small className="field-error">{form.formState.errors.title.message}</small>
+                    )}
+                  </>
                 )}
               </div>
-            )}
+            </div>
 
             <div className="document-meta">
               <label>
@@ -426,7 +504,10 @@ export function DocumentEditorPage() {
                 {isReadOnly ? (
                   <strong>{form.getValues("customerName")}</strong>
                 ) : (
-                  <input {...form.register("customerName")} aria-invalid={Boolean(form.formState.errors.customerName)} />
+                  <>
+                    <input {...form.register("customerName")} aria-invalid={Boolean(form.formState.errors.customerName)} />
+                    {form.formState.errors.customerName ? <small className="field-error">{form.formState.errors.customerName.message}</small> : null}
+                  </>
                 )}
               </label>
               <label>
@@ -439,10 +520,7 @@ export function DocumentEditorPage() {
                     <CalendarBlank size={17} aria-hidden="true" />
                   </span>
                 )}
-              </label>
-              <label>
-                <span>Document status</span>
-                <strong>{isFinalized ? "Finalized" : "Draft"}</strong>
+                {form.formState.errors.documentDate ? <small className="field-error">{form.formState.errors.documentDate.message}</small> : null}
               </label>
               <label>
                 <span>Valid until</span>
@@ -454,18 +532,20 @@ export function DocumentEditorPage() {
                     <CalendarBlank size={17} aria-hidden="true" />
                   </span>
                 )}
+                {form.formState.errors.validUntil ? <small className="field-error">{form.formState.errors.validUntil.message}</small> : null}
               </label>
               <label>
                 <span>Currency</span>
                 {isReadOnly ? (
                   <strong>{form.getValues("currency")}</strong>
                 ) : (
-                  <select {...form.register("currency")} aria-label="Currency">
-                    {SUPPORTED_CURRENCIES.map((currency) => (
-                      <option key={currency} value={currency}>{currency}</option>
+                  <select {...form.register("currency")} aria-label="Currency" disabled={currenciesQuery.isLoading}>
+                    {availableCurrencies.map((currency) => (
+                      <option key={currency.code} value={currency.code}>{currency.code}</option>
                     ))}
                   </select>
                 )}
+                {form.formState.errors.currency ? <small className="field-error">{form.formState.errors.currency.message}</small> : null}
               </label>
             </div>
           </section>
@@ -476,13 +556,13 @@ export function DocumentEditorPage() {
               <span>{fields.length} items</span>
             </div>
             <div
-              className={`line-items-grid ${showDescription ? "with-description" : "without-description"}`}
+              className="line-items-grid"
               role="table"
               aria-label="Pricing line items"
             >
               <div className="line-header" role="row">
                 <span role="columnheader" className="line-leading" />
-                <span role="columnheader">Item{showDescription && <small>Description</small>}</span>
+                <span role="columnheader">Item / description</span>
                 <span role="columnheader">Qty</span>
                 <span role="columnheader">Unit price</span>
                 <span role="columnheader">Discount</span>
@@ -492,7 +572,15 @@ export function DocumentEditorPage() {
               </div>
 
               {fields.map((field, index) => {
-                const serverLine = document.lines.find((line) => line.id === field.id) ?? field;
+                const serverLine = field.id
+                  ? document.lines.find((line) => line.id === field.id)
+                  : undefined;
+                const quantityRegistration = form.register(`lines.${index}.quantity`);
+                const unitPriceRegistration = form.register(`lines.${index}.unitPrice`);
+                const discountValueRegistration = form.register(`lines.${index}.discountValue`);
+                const taxRateRegistration = form.register(`lines.${index}.taxRate`);
+                const descriptionRegistration = form.register(`lines.${index}.description`);
+                const lineErrors = form.formState.errors.lines?.[index];
                 return (
                   <div className="line-row" role="row" key={field.formKey}>
                     <div className="line-leading" role="cell">
@@ -512,21 +600,73 @@ export function DocumentEditorPage() {
 
                     <div className="item-cell" role="cell" data-label="Item">
                       {isReadOnly ? (
-                        <span className="readonly-line-value"><strong>{field.name}</strong>{showDescription && <small>{field.description || "No description"}</small>}</span>
+                        <span className="readonly-line-value"><strong>{field.name}</strong><small>{field.description || "No description"}</small></span>
                       ) : (
                         <>
-                          <input aria-label={`Line ${index + 1} item name`} {...form.register(`lines.${index}.name`)} />
-                          {showDescription && <input className="description-input" aria-label={`Line ${index + 1} description`} placeholder="Add description" {...form.register(`lines.${index}.description`)} />}
+                          <div className="item-input-group">
+                            <input aria-label={`Line ${index + 1} item name`} {...form.register(`lines.${index}.name`)} />
+                            <textarea
+                              className="description-input"
+                              aria-label={`Line ${index + 1} description`}
+                              placeholder="Add description"
+                              rows={1}
+                              maxLength={DESCRIPTION_MAX_LENGTH}
+                              {...descriptionRegistration}
+                              onChange={(event) => {
+                                if (event.currentTarget.value.length > DESCRIPTION_MAX_LENGTH) {
+                                  event.currentTarget.value = event.currentTarget.value.slice(
+                                    0,
+                                    DESCRIPTION_MAX_LENGTH,
+                                  );
+                                }
+                                void descriptionRegistration.onChange(event);
+                              }}
+                              onInput={(event) => {
+                                const target = event.currentTarget;
+                                target.style.height = "34px";
+                                target.style.height = `${Math.min(92, Math.max(34, target.scrollHeight))}px`;
+                              }}
+                            />
+                          </div>
+                          {lineErrors?.name ? <small className="field-error">{lineErrors.name.message}</small> : null}
+                          {lineErrors?.description ? <small className="field-error">{lineErrors.description.message}</small> : null}
                         </>
                       )}
                     </div>
 
                     <div role="cell" data-label="Quantity">
-                      {isReadOnly ? <span>{field.quantity}</span> : <input inputMode="decimal" aria-label={`Line ${index + 1} quantity`} {...form.register(`lines.${index}.quantity`)} />}
+                      {isReadOnly ? <span>{field.quantity}</span> : <>
+                        <input
+                          inputMode="decimal"
+                          aria-label={`Line ${index + 1} quantity`}
+                          {...quantityRegistration}
+                          onChange={(event) => acceptDecimalEntry(
+                            event,
+                            form.getValues(`lines.${index}.quantity`),
+                            quantityRegistration.onChange,
+                          )}
+                        />
+                        {lineErrors?.quantity ? <small className="field-error">{lineErrors.quantity.message}</small> : null}
+                      </>}
                     </div>
 
                     <div className="money-input" role="cell" data-label="Unit price">
-                      {isReadOnly ? <span>{formatMoney(field.unitPrice, selectedCurrency)}</span> : <><span aria-hidden="true">{currencySymbol}</span><input inputMode="decimal" aria-label={`Line ${index + 1} unit price`} {...form.register(`lines.${index}.unitPrice`)} /></>}
+                      {isReadOnly ? <span>{formatMoney(field.unitPrice, selectedCurrency)}</span> : <>
+                        <span className="compound-control money-control">
+                          <span aria-hidden="true">{currencySymbol}</span>
+                          <input
+                            inputMode="decimal"
+                            aria-label={`Line ${index + 1} unit price`}
+                            {...unitPriceRegistration}
+                            onChange={(event) => acceptDecimalEntry(
+                              event,
+                              form.getValues(`lines.${index}.unitPrice`),
+                              unitPriceRegistration.onChange,
+                            )}
+                          />
+                        </span>
+                        {lineErrors?.unitPrice ? <small className="field-error">{lineErrors.unitPrice.message}</small> : null}
+                      </>}
                     </div>
 
                     <div className="discount-input" role="cell" data-label="Discount">
@@ -534,31 +674,63 @@ export function DocumentEditorPage() {
                         <span>{field.discountType === "percentage" ? `${field.discountValue}%` : field.discountType === "fixed" ? formatMoney(field.discountValue, selectedCurrency) : "—"}</span>
                       ) : (
                         <>
-                          <select aria-label={`Line ${index + 1} discount type`} {...form.register(`lines.${index}.discountType`)}>
-                            <option value="none">—</option>
-                            <option value="percentage">%</option>
-                            <option value="fixed">{currencySymbol}</option>
-                          </select>
-                          <input inputMode="decimal" aria-label={`Line ${index + 1} discount value`} disabled={form.getValues(`lines.${index}.discountType`) === "none"} {...form.register(`lines.${index}.discountValue`)} />
+                          <span className="compound-control discount-control">
+                            <select
+                              aria-label={`Line ${index + 1} discount type`}
+                              {...form.register(`lines.${index}.discountType`, {
+                                onChange: (event) => {
+                                  if (event.target.value === "none") {
+                                    form.setValue(`lines.${index}.discountValue`, "0.00", { shouldDirty: true });
+                                  }
+                                },
+                              })}
+                            >
+                              <option value="none">—</option>
+                              <option value="percentage">%</option>
+                              <option value="fixed">{currencySymbol}</option>
+                            </select>
+                            <input
+                              inputMode="decimal"
+                              aria-label={`Line ${index + 1} discount value`}
+                              disabled={form.getValues(`lines.${index}.discountType`) === "none"}
+                              {...discountValueRegistration}
+                              onChange={(event) => acceptDecimalEntry(
+                                event,
+                                form.getValues(`lines.${index}.discountValue`),
+                                discountValueRegistration.onChange,
+                              )}
+                            />
+                          </span>
+                          {lineErrors?.discountValue ? <small className="field-error">{lineErrors.discountValue.message}</small> : null}
                         </>
                       )}
                     </div>
 
-                    <div role="cell" data-label="Tax">
+                    <div className="tax-input" role="cell" data-label="Tax">
                       {isReadOnly ? (
-                        <span>{Number(field.taxRate) ? `${field.taxRate}%` : "None"}</span>
+                        <span>{/^0+(?:\.0+)?$/.test(field.taxRate) ? "None" : `${field.taxRate}%`}</span>
                       ) : (
-                        <select aria-label={`Line ${index + 1} tax rate`} {...form.register(`lines.${index}.taxRate`)}>
-                          <option value="0.00">None</option>
-                          <option value="5.00">5%</option>
-                          <option value="10.00">10%</option>
-                          <option value="18.00">18%</option>
-                        </select>
+                        <>
+                          <span className="compound-control rate-input">
+                            <input
+                              inputMode="decimal"
+                              aria-label={`Line ${index + 1} tax rate`}
+                              {...taxRateRegistration}
+                              onChange={(event) => acceptDecimalEntry(
+                                event,
+                                form.getValues(`lines.${index}.taxRate`),
+                                taxRateRegistration.onChange,
+                              )}
+                            />
+                            <span aria-hidden="true">%</span>
+                          </span>
+                          {lineErrors?.taxRate ? <small className="field-error">{lineErrors.taxRate.message}</small> : null}
+                        </>
                       )}
                     </div>
 
                     <strong className="line-total" role="cell" data-label="Line total">
-                      {formatMoney(serverLine.grandTotal, selectedCurrency)}
+                      {serverLine ? formatMoney(serverLine.grandTotal, document.currency) : "Save to calculate"}
                     </strong>
 
                     <div className="line-actions" role="cell">
@@ -566,7 +738,7 @@ export function DocumentEditorPage() {
                         <details>
                           <summary aria-label={`Actions for line ${index + 1}`}><DotsThree size={22} weight="bold" /></summary>
                           <div>
-                            <button type="button" onClick={() => remove(index)} disabled={fields.length === 1}>
+                            <button type="button" onClick={() => remove(index)}>
                               <Trash size={16} aria-hidden="true" /> Delete line
                             </button>
                           </div>
@@ -582,7 +754,10 @@ export function DocumentEditorPage() {
               <button
                 type="button"
                 className="add-line-button"
-                onClick={() => append(newLine(fields.length + 1), { shouldFocus: true })}
+                onClick={() => append(newLine(), {
+                  shouldFocus: true,
+                  focusName: `lines.${fields.length}.name`,
+                })}
               >
                 <span><Plus size={19} aria-hidden="true" /> Add line</span>
                 <kbd>Shift</kbd><span>+</span><kbd>Enter</kbd>
@@ -593,21 +768,12 @@ export function DocumentEditorPage() {
             )}
           </section>
 
-          {!isReading && (
-            <aside className="calculation-help">
-              <Info size={23} aria-hidden="true" />
-              <div>
-                <strong>Discounts and tax</strong>
-                <p>Percentage discounts apply to each line subtotal. Fixed discounts are removed from the line before tax.</p>
-              </div>
-            </aside>
-          )}
         </form>
 
-        <CalculationSummary document={{ ...document, currency: selectedCurrency }} />
+        <CalculationSummary document={document} />
       </div>
 
-      <DocumentPreviewDialog ref={previewRef} document={{ ...document, currency: selectedCurrency }} />
+      <DocumentPreviewDialog ref={previewRef} document={document} />
 
       <dialog className="confirmation-dialog" ref={finalizeRef} aria-labelledby="finalize-title">
         <form method="dialog">
@@ -616,12 +782,12 @@ export function DocumentEditorPage() {
         <span className="dialog-icon"><LockKey size={24} aria-hidden="true" /></span>
         <h2 id="finalize-title">Finalize this document?</h2>
         <p>
-          Finalizing locks all pricing and customer details. You can still preview, export,
+          Finalizing locks all pricing and customer details. You can still preview, print,
           or duplicate it into a new draft.
         </p>
         <dl>
           <div><dt>Document</dt><dd>{document.number}</dd></div>
-          <div><dt>Grand total</dt><dd>{formatMoney(document.totals.grandTotal, selectedCurrency)}</dd></div>
+          <div><dt>Grand total</dt><dd>{formatMoney(document.totals.grandTotal, document.currency)}</dd></div>
         </dl>
         <div className="dialog-actions">
           <form method="dialog"><button className="button secondary">Keep editing</button></form>

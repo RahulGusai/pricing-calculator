@@ -14,7 +14,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import Engine, text
 
 from pricing_api import services
-from pricing_api.artifacts import build_artifact_storage
 from pricing_api.config import Settings, get_settings
 from pricing_api.database import create_database_engine, create_session_factory
 from pricing_api.dependencies import AuthDep, CsrfAuthDep, DatabaseDep, SettingsDep
@@ -25,8 +24,6 @@ from pricing_api.errors import (
     request_validation_error_handler,
 )
 from pricing_api.schemas import (
-    ArtifactDownloadResponse,
-    ArtifactResponse,
     AuthResponse,
     CurrencyConfigResponse,
     DeleteDocumentRequest,
@@ -80,7 +77,6 @@ def create_app(
     app.state.settings = configured_settings
     app.state.engine = configured_engine
     app.state.session_factory = create_session_factory(configured_engine)
-    app.state.artifact_storage = build_artifact_storage(configured_settings)
 
     if configured_settings.cors_origins:
         app.add_middleware(
@@ -249,12 +245,7 @@ def create_app(
         db: DatabaseDep,
     ) -> Response:
         del payload  # Its Literal[True] schema provides the deliberate confirmation.
-        services.delete_document(
-            db,
-            auth.user,
-            str(document_id),
-            app.state.artifact_storage,
-        )
+        services.delete_document(db, auth.user, str(document_id))
         return Response(status_code=204)
 
     @app.post(
@@ -268,12 +259,7 @@ def create_app(
         db: DatabaseDep,
     ) -> DocumentResponse:
         return services.document_response(
-            services.finalize_document(
-                db,
-                auth.user,
-                str(document_id),
-                app.state.artifact_storage,
-            )
+            services.finalize_document(db, auth.user, str(document_id))
         )
 
     @app.post(
@@ -289,48 +275,6 @@ def create_app(
     ) -> DocumentResponse:
         return services.document_response(
             services.duplicate_document(db, auth.user, str(document_id))
-        )
-
-    @app.get(
-        "/api/v1/documents/{document_id}/artifact",
-        response_model=ArtifactResponse,
-        tags=["artifacts"],
-    )
-    def get_artifact(document_id: UUID, auth: AuthDep, db: DatabaseDep) -> ArtifactResponse:
-        return services.artifact_metadata(db, auth.user, str(document_id))
-
-    @app.get(
-        "/api/v1/documents/{document_id}/artifact/download",
-        response_model=ArtifactDownloadResponse,
-        tags=["artifacts"],
-    )
-    def download_artifact(
-        document_id: UUID,
-        auth: AuthDep,
-        db: DatabaseDep,
-        settings: SettingsDep,
-    ) -> ArtifactDownloadResponse:
-        return services.artifact_download(
-            db,
-            auth.user,
-            str(document_id),
-            app.state.artifact_storage,
-            settings,
-        )
-
-    @app.get("/api/v1/artifacts/local/{object_key:path}", tags=["artifacts"])
-    def get_local_artifact_content(object_key: str, auth: AuthDep, db: DatabaseDep) -> Response:
-        content = services.local_artifact_content(
-            db,
-            auth.user,
-            object_key,
-            app.state.artifact_storage,
-        )
-        filename = object_key.rsplit("/", maxsplit=1)[-1]
-        return Response(
-            content=content,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     @app.get(

@@ -1,4 +1,6 @@
 import type {
+  CurrencyCode,
+  DocumentCreateInput,
   DocumentStatus,
   DocumentSummary,
   PricingDocument,
@@ -6,10 +8,8 @@ import type {
   UpdateDocumentInput,
   User,
 } from "../types";
-import { SUPPORTED_CURRENCIES } from "../types";
 import {
   buildFixtureDocuments,
-  MOCK_ACCESS_TOKEN,
   MOCK_CREDENTIALS,
   MOCK_USER,
   type OwnedPricingDocument,
@@ -21,6 +21,8 @@ import {
 } from "./pricing";
 
 export const MOCK_DATABASE_STORAGE_KEY = "pricing-calculator.mock-database.v1";
+const MOCK_SUPPORTED_CURRENCIES: CurrencyCode[] = ["USD", "INR", "AED"];
+const DESCRIPTION_MAX_LENGTH = 240;
 
 interface PersistedState {
   version: 1;
@@ -59,32 +61,6 @@ function seedState(): PersistedState {
     mutationSequence: 0,
     documents: buildFixtureDocuments(),
   };
-}
-
-function browserStorage(): Storage | null {
-  try {
-    return typeof globalThis.localStorage === "undefined"
-      ? null
-      : globalThis.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function loadState(): PersistedState {
-  const storage = browserStorage();
-  const serialized = storage?.getItem(MOCK_DATABASE_STORAGE_KEY);
-  if (serialized) {
-    try {
-      const parsed = JSON.parse(serialized) as PersistedState;
-      if (parsed.version === 1 && Array.isArray(parsed.documents)) {
-        return parsed;
-      }
-    } catch {
-      storage?.removeItem(MOCK_DATABASE_STORAGE_KEY);
-    }
-  }
-  return seedState();
 }
 
 function documentSummary(document: PricingDocument): DocumentSummary {
@@ -132,19 +108,18 @@ function assertIsoDate(value: string, field: string): void {
 }
 
 class MockStore {
-  private state = loadState();
+  private state = seedState();
+  private sessionUserId: string | null = null;
+  private csrfToken: string | null = null;
 
   reset(): void {
-    browserStorage()?.removeItem(MOCK_DATABASE_STORAGE_KEY);
     this.state = seedState();
-    this.persist();
+    this.sessionUserId = null;
+    this.csrfToken = null;
   }
 
   private persist(): void {
-    browserStorage()?.setItem(
-      MOCK_DATABASE_STORAGE_KEY,
-      JSON.stringify(this.state),
-    );
+    // Explicit mock mode is intentionally in-memory; real sessions/data live in FastAPI.
   }
 
   private nextTimestamp(): string {
@@ -184,11 +159,7 @@ class MockStore {
     input: UpdateDocumentInput,
   ): ReturnType<typeof calculateDocument> {
     const fields: Record<string, string> = {};
-    if (!input.title.trim()) fields.title = "Title is required.";
-    if (!input.customerName.trim()) {
-      fields.customerName = "Customer name is required.";
-    }
-    if (!SUPPORTED_CURRENCIES.includes(input.currency)) {
+    if (!MOCK_SUPPORTED_CURRENCIES.includes(input.currency)) {
       fields.currency = "Choose a supported document currency.";
     }
     assertIsoDate(input.documentDate, "documentDate");
@@ -199,6 +170,10 @@ class MockStore {
 
     input.lines.forEach((line, index) => {
       if (!line.name.trim()) fields[`lines.${index}.name`] = "Name is required.";
+      if (line.description.length > DESCRIPTION_MAX_LENGTH) {
+        fields[`lines.${index}.description`] =
+          `Description must not exceed ${DESCRIPTION_MAX_LENGTH} characters.`;
+      }
     });
     if (Object.keys(fields).length > 0) {
       throw new MockApiError(
@@ -243,8 +218,23 @@ class MockStore {
     return clone(MOCK_USER);
   }
 
-  userForToken(token: string): User | null {
-    return token === MOCK_ACCESS_TOKEN ? clone(MOCK_USER) : null;
+  startSession(user: User): { user: User; csrfToken: string } {
+    this.sessionUserId = user.id;
+    this.csrfToken = `mock-csrf-${this.state.mutationSequence + 1}`;
+    return { user: clone(user), csrfToken: this.csrfToken };
+  }
+
+  currentUser(): User | null {
+    return this.sessionUserId === MOCK_USER.id ? clone(MOCK_USER) : null;
+  }
+
+  hasValidCsrf(value: string | null): boolean {
+    return Boolean(value && this.csrfToken && value === this.csrfToken);
+  }
+
+  endSession(): void {
+    this.sessionUserId = null;
+    this.csrfToken = null;
   }
 
   list(ownerId: string): DocumentSummary[] {
@@ -259,27 +249,30 @@ class MockStore {
     return publicDocument(this.findOwned(ownerId, documentId));
   }
 
-  create(ownerId: string): PricingDocument {
+  create(ownerId: string, input: DocumentCreateInput = {}): PricingDocument {
     const identity = this.nextDocumentIdentity();
     const timestamp = this.nextTimestamp();
+    const title = input.title ?? "Untitled pricing document";
+    const customerName = input.customerName ?? "";
+    const documentDate = input.documentDate ?? "2026-08-10";
+    const validUntil = input.validUntil ?? "2026-09-09";
+    const currency = input.currency ?? "USD";
+    const calculated = input.lines
+      ? this.validateAndCalculate({ title, customerName, documentDate, validUntil, currency, lines: input.lines })
+      : { lines: [], totals: { subtotal: "0.00", discount: "0.00", tax: "0.00", grandTotal: "0.00" } };
     const document: OwnedPricingDocument = {
       ...identity,
       ownerId,
-      title: "Untitled pricing document",
-      customerName: "",
-      documentDate: "2026-08-10",
-      validUntil: "2026-09-09",
-      currency: "USD",
+      title,
+      customerName,
+      documentDate,
+      validUntil,
+      currency,
       status: "draft",
       updatedAt: timestamp,
       finalizedAt: null,
-      lines: [],
-      totals: {
-        subtotal: "0.00",
-        discount: "0.00",
-        tax: "0.00",
-        grandTotal: "0.00",
-      },
+      lines: calculated.lines,
+      totals: calculated.totals,
     };
     this.state.documents.push(document);
     this.persist();
@@ -418,8 +411,8 @@ class MockStore {
           document.customerName.toLocaleLowerCase().includes(customerQuery),
       )
       .sort((left, right) => right.documentDate.localeCompare(left.documentDate));
-    const totals = sumTotals(documents.map((document) => document.totals));
-    const currencyTotals = SUPPORTED_CURRENCIES.flatMap((currency) => {
+    const currencies = [...new Set(documents.map((document) => document.currency))].sort();
+    const currencyTotals = currencies.flatMap((currency) => {
       const matchingDocuments = documents.filter(
         (document) => document.currency === currency,
       );
@@ -436,7 +429,7 @@ class MockStore {
       endDate,
       status,
       customer,
-      totals: { ...totals, documentCount: documents.length },
+      documentCount: documents.length,
       currencyTotals,
       documents: documents.map(documentSummary).map(clone),
     };

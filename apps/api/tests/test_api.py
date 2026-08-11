@@ -125,11 +125,16 @@ def test_invalid_json_uses_the_machine_readable_error_envelope(client: TestClien
 def test_openapi_exposes_the_versioned_document_contract(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     assert "/api/v1/documents/{document_id}" in schema["paths"]
+    assert "/api/v1/documents/{document_id}/artifact" not in schema["paths"]
+    assert "/api/v1/documents/{document_id}/artifact/download" not in schema["paths"]
     assert "DeleteDocumentRequest" in schema["components"]["schemas"]
     assert schema["components"]["schemas"]["CurrencyCode"]["enum"] == ["USD", "INR", "AED"]
+    assert schema["components"]["schemas"]["LineWriteRequest"]["properties"][
+        "description"
+    ]["maxLength"] == 240
 
 
-def test_document_calculation_lifecycle_duplicate_and_private_artifact(client: TestClient) -> None:
+def test_document_calculation_lifecycle_duplicate_and_delete(client: TestClient) -> None:
     document, csrf_headers = create_and_populate_document(client)
     assert document["totals"] == {
         "subtotal": "450.00",
@@ -146,7 +151,7 @@ def test_document_calculation_lifecycle_duplicate_and_private_artifact(client: T
     assert finalized.status_code == 200, finalized.text
     finalized_body = finalized.json()
     assert finalized_body["status"] == "finalized"
-    assert finalized_body["artifact"]["state"] == "ready"
+    assert "artifact" not in finalized_body
 
     immutable = client.patch(
         f"/api/v1/documents/{document['id']}",
@@ -155,13 +160,6 @@ def test_document_calculation_lifecycle_duplicate_and_private_artifact(client: T
     )
     assert immutable.status_code == 409
     assert immutable.json()["error"]["code"] == "DOCUMENT_FINALIZED"
-
-    download = client.get(f"/api/v1/documents/{document['id']}/artifact/download")
-    assert download.status_code == 200
-    pdf = client.get(download.json()["url"])
-    assert pdf.status_code == 200
-    assert pdf.headers["content-type"].startswith("application/pdf")
-    assert pdf.content.startswith(b"%PDF")
 
     duplicate = client.post(
         f"/api/v1/documents/{document['id']}/duplicate",
@@ -195,7 +193,9 @@ def test_document_calculation_lifecycle_duplicate_and_private_artifact(client: T
     assert missing_confirmation.status_code == 422
 
 
-def test_finalization_escapes_customer_entered_pdf_text(client: TestClient) -> None:
+def test_finalization_accepts_customer_entered_text_without_generating_an_artifact(
+    client: TestClient,
+) -> None:
     _, csrf_headers = signup(client)
     created = client.post("/api/v1/documents", json={}, headers=csrf_headers)
     payload = sample_document_payload()
@@ -215,6 +215,8 @@ def test_finalization_escapes_customer_entered_pdf_text(client: TestClient) -> N
         headers=csrf_headers,
     )
     assert finalized.status_code == 200, finalized.text
+    assert finalized.json()["status"] == "finalized"
+    assert "artifact" not in finalized.json()
 
 
 def test_owner_scope_and_input_precision(client: TestClient, app) -> None:
@@ -247,6 +249,21 @@ def test_owner_scope_and_input_precision(client: TestClient, app) -> None:
         assert "lines.0.unitPrice" in invalid.json()["error"]["fields"]
 
     assert csrf_headers
+
+
+def test_rejects_line_descriptions_above_240_characters(client: TestClient) -> None:
+    _, csrf_headers = signup(client)
+    payload = sample_document_payload()
+    payload["lines"][0]["description"] = "x" * 241
+
+    response = client.post(
+        "/api/v1/documents",
+        headers=csrf_headers,
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert "lines.0.description" in response.json()["error"]["fields"]
 
 
 def test_rejects_blank_line_names_and_nonzero_none_discount(client: TestClient) -> None:
@@ -292,14 +309,14 @@ def test_rejects_blank_line_names_and_nonzero_none_discount(client: TestClient) 
     assert "lines.0.discountValue" in nonzero_none_discount.json()["error"]["fields"]
 
 
-def test_report_uses_inclusive_bounds_and_never_sums_mixed_currencies(client: TestClient) -> None:
+def test_report_uses_inclusive_bounds_and_returns_one_row_per_currency(client: TestClient) -> None:
     document, csrf_headers = create_and_populate_document(client)
     second = client.post("/api/v1/documents", json={}, headers=csrf_headers)
     second_id = second.json()["id"]
-    inr_payload = sample_document_payload(currency="INR")
-    inr_payload["title"] = "Indian proposal"
-    inr_payload["customerName"] = "Bharat Co"
-    inr_payload["lines"] = [
+    aed_payload = sample_document_payload(currency="AED")
+    aed_payload["title"] = "Emirates proposal"
+    aed_payload["customerName"] = "Gulf Co"
+    aed_payload["lines"] = [
         {
             "name": "Consultation",
             "description": "",
@@ -313,7 +330,7 @@ def test_report_uses_inclusive_bounds_and_never_sums_mixed_currencies(client: Te
     second_updated = client.patch(
         f"/api/v1/documents/{second_id}",
         headers=csrf_headers,
-        json=inr_payload,
+        json=aed_payload,
     )
     assert second_updated.status_code == 200
 
@@ -332,7 +349,7 @@ def test_report_uses_inclusive_bounds_and_never_sums_mixed_currencies(client: Te
     assert "totals" not in body
     assert body["currencyTotals"] == [
         {
-            "currency": "INR",
+            "currency": "AED",
             "documentCount": 1,
             "subtotal": "19.99",
             "discount": "2.50",
@@ -350,41 +367,11 @@ def test_report_uses_inclusive_bounds_and_never_sums_mixed_currencies(client: Te
     ]
 
 
-def test_artifact_access_is_owner_scoped_and_failed_deletion_keeps_document(
-    client: TestClient, app
-) -> None:
-    document, csrf_headers = create_and_populate_document(client)
-    finalized = client.post(
-        f"/api/v1/documents/{document['id']}/finalize",
-        headers=csrf_headers,
+def test_removed_artifact_routes_return_not_found(client: TestClient) -> None:
+    document, _ = create_and_populate_document(client)
+
+    assert client.get(f"/api/v1/documents/{document['id']}/artifact").status_code == 404
+    assert (
+        client.get(f"/api/v1/documents/{document['id']}/artifact/download").status_code
+        == 404
     )
-    assert finalized.status_code == 200, finalized.text
-    download = client.get(f"/api/v1/documents/{document['id']}/artifact/download")
-    assert download.status_code == 200
-
-    with TestClient(app) as other_client:
-        _, _ = signup(other_client, email="other@example.com")
-        assert other_client.get(f"/api/v1/documents/{document['id']}/artifact").status_code == 404
-        assert other_client.get(download.json()["url"]).status_code == 404
-
-    class FailingDeletionStorage:
-        def delete(self, _: str) -> None:
-            raise OSError("object store unavailable")
-
-    original_storage = app.state.artifact_storage
-    app.state.artifact_storage = FailingDeletionStorage()
-    try:
-        failed_delete = client.request(
-            "DELETE",
-            f"/api/v1/documents/{document['id']}",
-            headers=csrf_headers,
-            json={"confirm": True},
-        )
-    finally:
-        app.state.artifact_storage = original_storage
-
-    assert failed_delete.status_code == 502
-    assert failed_delete.json()["error"]["code"] == "ARTIFACT_DELETION_FAILED"
-    still_exists = client.get(f"/api/v1/documents/{document['id']}")
-    assert still_exists.status_code == 200
-    assert still_exists.json()["artifact"]["state"] == "ready"

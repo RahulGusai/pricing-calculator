@@ -225,48 +225,51 @@ export function ReportsPage() {
                 {report.currencyTotals.length > 1 ? "Currency groups" : "Grand total"}
               </p>
               <strong>
-                {report.currencyTotals.length > 1
-                  ? `${report.currencyTotals.length} currencies`
-                  : formatMoney(
-                      report.currencyTotals[0]?.grandTotal ?? "0.00",
-                      report.currencyTotals[0]?.currency ?? "USD",
-                    )}
+                {report.currencyTotals.length === 0
+                  ? "No document value"
+                  : report.currencyTotals.length > 1
+                    ? `${report.currencyTotals.length} currencies`
+                    : formatMoney(
+                        report.currencyTotals[0].grandTotal,
+                        report.currencyTotals[0].currency,
+                      )}
               </strong>
               <span>
-                Across {report.totals.documentCount} document
-                {report.totals.documentCount === 1 ? "" : "s"}
+                Across {report.documentCount} document
+                {report.documentCount === 1 ? "" : "s"}
               </span>
             </div>
-            {report.currencyTotals.length > 1 ? (
-              <dl className="report-summary-breakdown currency-breakdown">
-                {report.currencyTotals.map((total) => (
-                  <div key={total.currency}>
-                    <dt>{total.currency} total</dt>
-                    <dd>{formatMoney(total.grandTotal, total.currency)}</dd>
-                    <small>{total.documentCount} document{total.documentCount === 1 ? "" : "s"}</small>
-                  </div>
-                ))}
-              </dl>
-            ) : (
-              <dl className="report-summary-breakdown">
-                <div>
-                  <dt>Subtotal</dt>
-                  <dd>{formatMoney(report.totals.subtotal, report.currencyTotals[0]?.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Discounts</dt>
-                  <dd>{formatMoney(report.totals.discount, report.currencyTotals[0]?.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Tax</dt>
-                  <dd>{formatMoney(report.totals.tax, report.currencyTotals[0]?.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Documents</dt>
-                  <dd>{report.totals.documentCount}</dd>
-                </div>
-              </dl>
-            )}
+            {report.currencyTotals.length > 0 ? (
+              <div className="currency-totals-wrap">
+                <table className="currency-totals-table">
+                  <caption className="ancillary-sr-only">
+                    Report totals separated by document currency
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Currency</th>
+                      <th scope="col">Documents</th>
+                      <th scope="col">Subtotal</th>
+                      <th scope="col">Discount</th>
+                      <th scope="col">Tax</th>
+                      <th scope="col">Grand total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.currencyTotals.map((total) => (
+                      <tr key={total.currency}>
+                        <th scope="row">{total.currency}</th>
+                        <td>{total.documentCount}</td>
+                        <td>{formatMoney(total.subtotal, total.currency)}</td>
+                        <td>{formatMoney(total.discount, total.currency)}</td>
+                        <td>{formatMoney(total.tax, total.currency)}</td>
+                        <td>{formatMoney(total.grandTotal, total.currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </section>
 
           <section className="report-detail" aria-labelledby="report-detail-title">

@@ -21,8 +21,6 @@ def app(tmp_path):
         pricing_supported_currencies="USD,INR,AED",
         pricing_default_currency="USD",
         session_cookie_secure=False,
-        artifact_storage="local",
-        local_artifacts_dir=tmp_path / "artifacts",
     )
     engine = create_database_engine(settings.database_url)
     Base.metadata.create_all(engine)

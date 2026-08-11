@@ -1,6 +1,6 @@
 # ADR 0002: React/Vite with contract-first mocks
 
-- Status: Accepted
+- Status: Accepted (implemented; FastAPI cutover completed)
 - Date: 2026-08-10
 
 ## Context
@@ -22,9 +22,10 @@ Library responsibilities stay deliberately narrow:
 - TanStack Query owns request state, caching, invalidation, and mutations.
 - React Hook Form owns dynamic line-item and field interaction state.
 - Zod validates the browser boundary without replacing backend validation.
-- MSW supplies the same request boundary to development and tests.
+- MSW supplies an explicit test/visual request boundary; normal development and
+  production use FastAPI.
 - Phosphor supplies one icon vocabulary; labels remain for consequential actions.
-- Bundled Manrope and Newsreader variable fonts provide interface and editorial roles
+- Bundled Source Sans 3 and Source Serif 4 variable fonts provide interface and editorial roles
   without a third-party runtime request.
 - Vitest, Testing Library, jest-dom, user-event, and jsdom exercise behavior and
   accessibility-oriented semantics.
@@ -38,7 +39,8 @@ would couple presentation to fake data and make the backend switch costly.
 ## Consequences
 
 The UX can be tested early with realistic latency, errors, and lifecycle behavior.
-Mocks require disciplined contract ownership and a later backend conformance pass.
+Mocks require disciplined contract ownership. The completed cutover uses generated
+FastAPI OpenAPI types and leaves MSW as an explicit in-memory test/visual double.
 
 ## Revisit triggers
 

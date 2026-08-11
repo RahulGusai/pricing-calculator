@@ -4,11 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { MOCK_ACCESS_TOKEN } from "../mocks/fixtures";
+import { MOCK_CREDENTIALS } from "../mocks/fixtures";
 import { resetMockState } from "../mocks/store";
+import { resetApiClientSession, signIn } from "../lib/api";
 import { DocumentsPage } from "./DocumentsPage";
-
-const SESSION_TOKEN_KEY = "pricing-calculator.access-token.v1";
 
 function renderDocuments() {
   const queryClient = new QueryClient({
@@ -27,10 +26,10 @@ function renderDocuments() {
 }
 
 describe("DocumentsPage", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
+  beforeEach(async () => {
+    resetApiClientSession();
     resetMockState();
-    window.localStorage.setItem(SESSION_TOKEN_KEY, MOCK_ACCESS_TOKEN);
+    await signIn(MOCK_CREDENTIALS.email, MOCK_CREDENTIALS.password);
   });
 
   it.each([

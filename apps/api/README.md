@@ -5,9 +5,9 @@
 > deployment invariants.
 
 FastAPI service for the pricing-calculator monorepo. It owns authentication,
-server-authoritative integer pricing, document lifecycle, reports, and private PDF
-artifact authorization. The React app remains on MSW until the planned contract
-migration is completed.
+server-authoritative integer pricing, document lifecycle, and currency-separated
+reports. The React app uses this service by default; MSW remains a test-only contract
+double.
 
 ## Local setup
 
@@ -21,8 +21,8 @@ uv run uvicorn pricing_api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 OpenAPI is available at <http://localhost:8000/openapi.json> and interactive docs at
-<http://localhost:8000/docs>. The local defaults use SQLite and `./.artifacts`; they
-are intentionally invalid when `APP_ENVIRONMENT=production`.
+<http://localhost:8000/docs>. The local default uses SQLite; production configuration
+requires PostgreSQL.
 
 ## Contract and calculations
 
@@ -37,7 +37,11 @@ are intentionally invalid when `APP_ENVIRONMENT=production`.
   before tax, and sums already-rounded line components for document totals.
 - Documents use full ordered-line `PATCH` replacement while draft. Finalized content
   is immutable; permanent whole-document deletion needs `{ "confirm": true }`.
-- Reports group totals by currency and never construct a mixed-currency money total.
+- Descriptions accept at most 240 characters.
+- Reports return exactly one totals row per currency and never construct a
+  mixed-currency money total.
+- The API does not render or store PDFs. Printable preview and printing are frontend
+  presentation concerns.
 
 The complete browser-facing schema and frontend migration sequence are in
 [the frontend-to-FastAPI migration plan](../../docs/frontend-backend-migration-plan.md).
@@ -54,7 +58,6 @@ uv run alembic check
 
 The service ships with a Dockerfile and `railway.json`. Production must set
 `APP_ENVIRONMENT=production`, a Railway PostgreSQL `DATABASE_URL`,
-`ARTIFACT_STORAGE=s3`, a private S3-compatible bucket configuration,
 `SESSION_COOKIE_SECURE=true`, and a unique `CSRF_SECRET`. See
 [the deployment guide](../../docs/deployment.md); do not run migrations against a
 live Railway database without explicit authorization.

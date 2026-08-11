@@ -4,14 +4,11 @@ import { formatMoney, formatSignedMoney } from "../lib/format";
 import type { PricingDocument } from "../types";
 
 export function CalculationSummary({ document }: { document: PricingDocument }) {
-  const taxableLines = document.lines.filter((line) => Number(line.taxRate) > 0);
-  const taxableAmount = taxableLines.reduce(
-    (sum, line) => sum + Number(line.subtotal) - Number(line.discount),
-    0,
-  );
+  const taxedLineCount = document.lines.filter((line) => line.tax !== "0.00").length;
 
   return (
     <aside className="calculation-summary" aria-label="Document calculation summary">
+      <h2>Summary</h2>
       <dl className="summary-totals">
         <div>
           <dt>Subtotal</dt>
@@ -52,7 +49,7 @@ export function CalculationSummary({ document }: { document: PricingDocument }) 
             <dd>{formatSignedMoney(document.totals.discount, document.currency)}</dd>
             <small>
               {document.lines
-                .filter((line) => Number(line.discount) > 0)
+                .filter((line) => line.discount !== "0.00")
                 .map((line) => `${formatMoney(line.discount, document.currency)} on ${line.name}`)
                 .join(" · ") || "No discounts"}
             </small>
@@ -61,7 +58,9 @@ export function CalculationSummary({ document }: { document: PricingDocument }) 
             <dt>Tax</dt>
             <dd>{formatMoney(document.totals.tax, document.currency)}</dd>
             <small>
-              Applied after discount to {formatMoney(taxableAmount.toFixed(2), document.currency)} taxable amount
+              {taxedLineCount > 0
+                ? `Applied after discount on ${taxedLineCount} tax-bearing ${taxedLineCount === 1 ? "line" : "lines"}`
+                : "No tax-bearing lines"}
             </small>
           </div>
           <div className="detail-grand-total">

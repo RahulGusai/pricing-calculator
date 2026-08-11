@@ -1,21 +1,17 @@
-import {
-  ChartBar,
-  FileText,
-  Gear,
-  SignOut,
-} from "@phosphor-icons/react";
+import { ChartBar, FileText, SignOut } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { signOut } from "../lib/api";
 import type { User } from "../types";
+import { ModeSwitch } from "./ModeSwitch";
 
 export function AppShell({ user }: { user: User }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const signOutMutation = useMutation({
     mutationFn: signOut,
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.clear();
       navigate("/login", { replace: true });
     },
@@ -25,7 +21,9 @@ export function AppShell({ user }: { user: User }) {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="workspace-mark">
-          <span className="workspace-avatar" aria-hidden="true">NL</span>
+          <span className="workspace-avatar" aria-hidden="true">
+            NL
+          </span>
           <span className="workspace-name">{user.workspaceName}</span>
         </div>
 
@@ -48,13 +46,16 @@ export function AppShell({ user }: { user: User }) {
               <small>{user.email}</small>
             </span>
           </div>
-          <button type="button" disabled title="Settings are not part of this prototype">
-            <Gear size={20} aria-hidden="true" />
-            <span>Settings</span>
-          </button>
-          <button type="button" onClick={() => signOutMutation.mutate()}>
+          <div className="sidebar-appearance">
+            <ModeSwitch />
+          </div>
+          <button
+            type="button"
+            onClick={() => signOutMutation.mutate()}
+            disabled={signOutMutation.isPending}
+          >
             <SignOut size={20} aria-hidden="true" />
-            <span>Sign out</span>
+            <span>{signOutMutation.isPending ? "Signing out…" : "Sign out"}</span>
           </button>
         </div>
       </aside>

@@ -75,7 +75,7 @@ class LineWriteRequest(ApiModel):
 
     id: UUID | None = None
     name: str = Field(min_length=1, max_length=250)
-    description: str = Field(default="", max_length=4_000)
+    description: str = Field(default="", max_length=240)
     quantity: str
     unitPrice: str
     discountType: DiscountType
@@ -147,15 +147,6 @@ class DeleteDocumentRequest(ApiModel):
     confirm: Literal[True]
 
 
-class ArtifactResponse(ApiModel):
-    state: Literal["ready"]
-    filename: str
-    contentType: Literal["application/pdf"]
-    sizeBytes: int
-    checksum: str
-    createdAt: datetime
-
-
 class DocumentResponse(ApiModel):
     id: UUID
     number: str
@@ -169,7 +160,6 @@ class DocumentResponse(ApiModel):
     finalizedAt: datetime | None
     lines: list[LineResponse]
     totals: MoneyTotalsResponse
-    artifact: ArtifactResponse | None = None
 
 
 class DocumentSummaryResponse(MoneyTotalsResponse):
@@ -180,11 +170,6 @@ class DocumentSummaryResponse(MoneyTotalsResponse):
     documentDate: date
     status: Literal["draft", "finalized"]
     currency: CurrencyCode
-
-
-class ArtifactDownloadResponse(ApiModel):
-    url: str
-    expiresAt: datetime
 
 
 class CurrencyTotalResponse(MoneyTotalsResponse):

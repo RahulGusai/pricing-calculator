@@ -15,16 +15,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import selectinload
 
-from pricing_api.artifacts import (
-    ArtifactStorage,
-    PrintableDocument,
-    PrintableLine,
-    artifact_expiry,
-    render_document_pdf,
-)
 from pricing_api.config import Settings
 from pricing_api.errors import ApiError
-from pricing_api.models import Artifact, Document, LineItem, Session, User, utc_now
+from pricing_api.models import Document, LineItem, Session, User, utc_now
 from pricing_api.pricing import (
     CalculatedDocument,
     CalculatedLine,
@@ -39,8 +32,6 @@ from pricing_api.pricing import (
     format_rate,
 )
 from pricing_api.schemas import (
-    ArtifactDownloadResponse,
-    ArtifactResponse,
     AuthResponse,
     CurrencyConfigResponse,
     CurrencyResponse,
@@ -142,19 +133,6 @@ def _line_response(line: LineItem) -> LineResponse:
     )
 
 
-def _artifact_response(artifact: Artifact | None, number: str) -> ArtifactResponse | None:
-    if artifact is None or artifact.state != "ready" or artifact.checksum is None:
-        return None
-    return ArtifactResponse(
-        state="ready",
-        filename=f"{number}.pdf",
-        contentType="application/pdf",
-        sizeBytes=artifact.size_bytes or 0,
-        checksum=artifact.checksum,
-        createdAt=_as_utc(artifact.created_at),
-    )
-
-
 def document_response(document: Document) -> DocumentResponse:
     return DocumentResponse(
         id=UUID(document.id),
@@ -169,7 +147,6 @@ def document_response(document: Document) -> DocumentResponse:
         finalizedAt=_as_utc(document.finalized_at) if document.finalized_at is not None else None,
         lines=[_line_response(line) for line in document.line_items],
         totals=_totals_response(document),
-        artifact=_artifact_response(document.artifact, document.number),
     )
 
 
@@ -196,7 +173,7 @@ def currency_config_response(settings: Settings) -> CurrencyConfigResponse:
 def _owned_document_query(document_id: str, owner_id: str) -> Select[tuple[Document]]:
     return (
         select(Document)
-        .options(selectinload(Document.line_items), selectinload(Document.artifact))
+        .options(selectinload(Document.line_items))
         .execution_options(populate_existing=True)
         .where(Document.id == document_id, Document.owner_id == owner_id)
     )
@@ -438,46 +415,10 @@ def delete_document(
     db: DbSession,
     owner: User,
     document_id: str,
-    storage: ArtifactStorage,
 ) -> None:
     document = get_owned_document(db, owner.id, document_id)
-    artifact = document.artifact
-    if artifact is None:
-        db.delete(document)
-        db.commit()
-        return
-
-    # First persist a recoverable deletion intent. The external object deletion
-    # happens after the short DB transaction, so no long S3 call holds a lock.
-    artifact.state = "deleting"
+    db.delete(document)
     db.commit()
-    try:
-        storage.delete(artifact.object_key)
-    except Exception as error:
-        db.rollback()
-        latest = get_owned_document(db, owner.id, document_id)
-        if latest.artifact is not None:
-            latest.artifact.state = "ready"
-            db.commit()
-        raise ApiError(
-            502,
-            "ARTIFACT_DELETION_FAILED",
-            "The document was not deleted because its private artifact could not be removed.",
-        ) from error
-
-    try:
-        # If a previous DB failure left a document in ``deleting``, this retry is
-        # safe: object deletion is idempotent and the record can now be removed.
-        latest = get_owned_document(db, owner.id, document_id)
-        db.delete(latest)
-        db.commit()
-    except Exception as error:
-        db.rollback()
-        raise ApiError(
-            502,
-            "DOCUMENT_DELETION_PENDING",
-            "The artifact was removed; retry deletion to remove its database record.",
-        ) from error
 
 
 def duplicate_document(db: DbSession, owner: User, document_id: str) -> Document:
@@ -522,47 +463,14 @@ def duplicate_document(db: DbSession, owner: User, document_id: str) -> Document
     return get_owned_document(db, owner.id, duplicate.id)
 
 
-def _printable_document(document: Document, calculated: CalculatedDocument) -> PrintableDocument:
-    lines = tuple(
-        PrintableLine(
-            name=line.name,
-            description=line.description,
-            quantity=calculated_line.quantity,
-            unit_price=calculated_line.unit_price,
-            discount=calculated_line.discount,
-            tax=calculated_line.tax,
-            grand_total=calculated_line.grand_total,
-        )
-        for line, calculated_line in zip(document.line_items, calculated.lines, strict=True)
-    )
-    return PrintableDocument(
-        number=document.number,
-        title=document.title,
-        customer_name=document.customer_name,
-        document_date=document.document_date.isoformat(),
-        valid_until=document.valid_until.isoformat(),
-        currency=document.currency,
-        lines=lines,
-        subtotal=calculated.totals.subtotal,
-        discount=calculated.totals.discount,
-        tax=calculated.totals.tax,
-        grand_total=calculated.totals.grand_total,
-    )
-
-
-def _same_timestamp(left: datetime, right: datetime) -> bool:
-    left_utc = left.replace(tzinfo=UTC) if left.tzinfo is None else left.astimezone(UTC)
-    right_utc = right.replace(tzinfo=UTC) if right.tzinfo is None else right.astimezone(UTC)
-    return left_utc == right_utc
-
-
 def finalize_document(
     db: DbSession,
     owner: User,
     document_id: str,
-    storage: ArtifactStorage,
 ) -> Document:
-    document = get_owned_document(db, owner.id, document_id)
+    document = db.scalar(_owned_document_query(document_id, owner.id).with_for_update())
+    if document is None:
+        raise ApiError(404, "DOCUMENT_NOT_FOUND", "Document not found.")
     if document.status == "finalized":
         return document
     if not document.title.strip() or not document.customer_name.strip():
@@ -587,115 +495,23 @@ def finalize_document(
             "The document contains invalid line values.",
             {error.field: str(error)},
         ) from error
-    snapshot_timestamp = document.updated_at
-    pdf = render_document_pdf(_printable_document(document, calculated))
-    # End the read transaction before the external upload.  The short final
-    # transaction below uses updated_at to reject a concurrent draft edit.
-    db.rollback()
-
-    object_key = f"finalized/{owner.id}/{document_id}/{uuid4().hex}.pdf"
-    try:
-        stored = storage.put_pdf(object_key, pdf)
-    except Exception as error:  # Storage SDK errors are provider-specific.
-        raise ApiError(
-            502,
-            "ARTIFACT_GENERATION_FAILED",
-            "The finalized PDF could not be stored. The document remains a draft.",
-        ) from error
-
-    try:
-        latest = db.scalar(
-            _owned_document_query(document_id, owner.id).with_for_update()
-        )
-        if latest is None:
-            raise ApiError(404, "DOCUMENT_NOT_FOUND", "Document not found.")
-        if latest.status != "draft" or not _same_timestamp(latest.updated_at, snapshot_timestamp):
-            raise ApiError(
-                409,
-                "DOCUMENT_CONFLICT",
-                "The document changed before it could be finalized. Try again.",
-            )
-        recalculated = _calculate_models(latest.line_items)
-        _apply_totals(latest, recalculated.totals)
-        for target, calculated_line in zip(latest.line_items, recalculated.lines, strict=True):
-            target.quantity_scaled = calculated_line.quantity_scaled
-            target.unit_price_minor = calculated_line.unit_price_minor
-            target.discount_type = calculated_line.discount_type.value
-            target.discount_value_scaled = calculated_line.discount_value_scaled
-            target.tax_rate_scaled = calculated_line.tax_rate_scaled
-            target.subtotal_minor = calculated_line.totals.subtotal_minor
-            target.discount_minor = calculated_line.totals.discount_minor
-            target.tax_minor = calculated_line.totals.tax_minor
-            target.grand_total_minor = calculated_line.totals.grand_total_minor
-        now = utc_now()
-        latest.status = "finalized"
-        latest.finalized_at = now
-        latest.updated_at = now
-        db.add(
-            Artifact(
-                document_id=latest.id,
-                object_key=stored.object_key,
-                checksum=stored.checksum,
-                content_type=stored.content_type,
-                size_bytes=stored.size_bytes,
-                state="ready",
-            )
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-        try:
-            storage.delete(stored.object_key)
-        except Exception:
-            # The storage object may need operator cleanup if a DB failure occurs.
-            pass
-        raise
+    _apply_totals(document, calculated.totals)
+    for target, calculated_line in zip(document.line_items, calculated.lines, strict=True):
+        target.quantity_scaled = calculated_line.quantity_scaled
+        target.unit_price_minor = calculated_line.unit_price_minor
+        target.discount_type = calculated_line.discount_type.value
+        target.discount_value_scaled = calculated_line.discount_value_scaled
+        target.tax_rate_scaled = calculated_line.tax_rate_scaled
+        target.subtotal_minor = calculated_line.totals.subtotal_minor
+        target.discount_minor = calculated_line.totals.discount_minor
+        target.tax_minor = calculated_line.totals.tax_minor
+        target.grand_total_minor = calculated_line.totals.grand_total_minor
+    now = utc_now()
+    document.status = "finalized"
+    document.finalized_at = now
+    document.updated_at = now
+    db.commit()
     return get_owned_document(db, owner.id, document_id)
-
-
-def artifact_download(
-    db: DbSession,
-    owner: User,
-    document_id: str,
-    storage: ArtifactStorage,
-    settings: Settings,
-) -> ArtifactDownloadResponse:
-    document = get_owned_document(db, owner.id, document_id)
-    artifact = document.artifact
-    if document.status != "finalized" or artifact is None or artifact.state != "ready":
-        raise ApiError(409, "ARTIFACT_NOT_READY", "A finalized PDF is not available yet.")
-    expires_at = artifact_expiry(settings)
-    return ArtifactDownloadResponse(
-        url=storage.download_url(artifact.object_key, expires_at),
-        expiresAt=expires_at,
-    )
-
-
-def artifact_metadata(db: DbSession, owner: User, document_id: str) -> ArtifactResponse:
-    document = get_owned_document(db, owner.id, document_id)
-    artifact = _artifact_response(document.artifact, document.number)
-    if document.status != "finalized" or artifact is None:
-        raise ApiError(409, "ARTIFACT_NOT_READY", "A finalized PDF is not available yet.")
-    return artifact
-
-
-def local_artifact_content(
-    db: DbSession,
-    owner: User,
-    object_key: str,
-    storage: ArtifactStorage,
-) -> bytes:
-    artifact = db.scalar(
-        select(Artifact)
-        .join(Artifact.document)
-        .where(Artifact.object_key == object_key, Document.owner_id == owner.id)
-    )
-    if artifact is None or artifact.state != "ready":
-        raise ApiError(404, "ARTIFACT_NOT_FOUND", "Artifact not found.")
-    content = storage.read(object_key)
-    if content is None:
-        raise ApiError(404, "ARTIFACT_NOT_FOUND", "Artifact not found.")
-    return content
 
 
 def report_summary(

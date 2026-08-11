@@ -20,9 +20,10 @@ const ModeContext = createContext<ModeContextValue | null>(null);
 
 function getInitialMode(): WorkspaceMode {
   const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "reading") {
+  if (stored === "light" || stored === "dark") {
     return stored;
   }
+  if (stored === "reading") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 

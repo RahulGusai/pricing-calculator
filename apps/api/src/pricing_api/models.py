@@ -233,12 +233,6 @@ class Document(Base):
         passive_deletes=True,
         order_by="LineItem.position",
     )
-    artifact: Mapped[Artifact | None] = relationship(
-        back_populates="document",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        uselist=False,
-    )
 
 
 class LineItem(Base):
@@ -328,63 +322,3 @@ class LineItem(Base):
     )
 
     document: Mapped[Document] = relationship(back_populates="line_items")
-
-
-class Artifact(Base):
-    """Metadata for the single private finalized artifact belonging to a document.
-
-    The object itself lives in private S3-compatible storage.  This table never
-    stores a signed URL; an authorized request generates one on demand.
-    """
-
-    __tablename__ = "artifacts"
-    __table_args__ = (
-        UniqueConstraint("document_id", name="uq_artifacts_document_id"),
-        UniqueConstraint("object_key", name="uq_artifacts_object_key"),
-        CheckConstraint("object_key <> ''", name="object_key_not_blank"),
-        CheckConstraint(
-            "state IN ('pending', 'ready', 'failed', 'deleting')",
-            name="state_known",
-        ),
-        CheckConstraint(
-            "size_bytes IS NULL OR size_bytes >= 0",
-            name="size_nonnegative_when_present",
-        ),
-        CheckConstraint(
-            "state <> 'ready' OR "
-            "(checksum IS NOT NULL AND checksum <> '' AND size_bytes IS NOT NULL)",
-            name="ready_has_integrity_metadata",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
-    document_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("documents.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
-    checksum: Mapped[str | None] = mapped_column(String(128))
-    content_type: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        default="application/pdf",
-        server_default=text("'application/pdf'"),
-    )
-    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
-    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        server_default=text("CURRENT_TIMESTAMP"),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utc_now,
-        onupdate=utc_now,
-        server_default=text("CURRENT_TIMESTAMP"),
-    )
-
-    document: Mapped[Document] = relationship(back_populates="artifact")

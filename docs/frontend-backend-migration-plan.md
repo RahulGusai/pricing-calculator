@@ -1,10 +1,39 @@
-# Frontend-to-FastAPI migration plan
+# Frontend-to-FastAPI migration record
 
-> **Read [AGENTS.md](../AGENTS.md) before changing any file.** This is an
-> implementation guide for replacing the browser-only MSW/localStorage/Bearer-token
+> **Read [AGENTS.md](../AGENTS.md) before changing any file.** This document
+> records the implemented replacement of the browser-only MSW/localStorage/Bearer
 > boundary in `apps/web` with the FastAPI v1 contract. FastAPI's generated OpenAPI
-> document is the eventual source of truth; this document records the agreed contract
-> that the first OpenAPI version must expose.
+> document is the contract source of truth.
+
+> **Current output policy:** the former PDF/artifact design is superseded by
+> [ADR 0008](decisions/0008-browser-print-preview-no-artifacts.md). The current
+> contract has no artifact metadata, object key, download URL, bucket, or local
+> artifact route. Users review and print the browser preview only.
+
+## Implementation status — 2026-08-11
+
+The cutover described below is implemented locally.
+
+- `apps/web/src/lib/generated/openapi.ts` is checked in from the running FastAPI
+  `/openapi.json`; `npm run generate:api` and `npm run check:api` own regeneration.
+- The browser adapter uses `credentials: "include"`, an in-memory CSRF token, a
+  one-time CSRF renewal retry, and no bearer/localStorage session state.
+- Login and sign-up are real FastAPI flows; `GET /auth/session` restores a page-load
+  session, and protected-route expiry clears the query cache before returning to
+  login.
+- Editor writes are input-only, autosaves preserve changes made while an earlier
+  request is in flight, supported currencies come from FastAPI configuration, and
+  returned pricing totals are never locally calculated.
+- Reports use `documentCount` plus separate `currencyTotals`, rendered as one row per
+  currency represented in the selected documents. Documents expose an in-browser
+  printable preview and no PDF download action.
+- MSW remains an explicit, non-persistent test/visual double with the same
+  cookie-session/CSRF/wire-shape behavior. It is not enabled in production.
+
+Verification on 2026-08-11 included the web test/type/lint/build/Sites suite, the
+API test/lint/migration suite, and a real local browser flow: sign-up, dynamic
+currency save, the `421.50` reference calculation, finalization, read-only state,
+and report visibility. Railway is intentionally not verified by this local cutover.
 
 ## Scope and locked decisions
 
@@ -140,7 +169,7 @@ type CurrencyConfigResponse = {
 
 ### Distinct write and response types
 
-The request types intentionally cannot carry a status, owner, artifact key,
+The request types intentionally cannot carry a status, owner,
 timestamp, line `position`, or any calculated monetary field. They reject unknown
 properties rather than silently accepting stale response data.
 
@@ -199,7 +228,6 @@ type DocumentResponse = {
   finalizedAt: string | null;
   lines: LineResponse[];
   totals: MoneyTotals;
-  artifact: ArtifactMetadataResponse | null;
 };
 
 type DocumentSummary = MoneyTotals & {
@@ -251,7 +279,7 @@ The calculation behind that response is `5,997` cents subtotal, `750` cents
 discount, `433` cents tax, and `5,680` cents grand total. Discount is calculated
 before tax, and each line component uses backend `ROUND_HALF_UP` rounding.
 
-### Reports and artifacts
+### Reports and printable preview
 
 There is no cross-currency top-level money total. Only a document count can span
 currencies.
@@ -272,20 +300,6 @@ type ReportResponse = {
   documents: DocumentSummary[];
 };
 
-type ArtifactMetadataResponse = {
-  state: "ready";
-  filename: string;
-  contentType: "application/pdf";
-  sizeBytes: number;
-  checksum: string;
-  createdAt: string;
-};
-
-type ArtifactDownloadResponse = {
-  url: string;          // production: short-lived presigned URL; local: authorized API route
-  expiresAt: string;    // ISO 8601 UTC
-};
-
 type ApiErrorBody = {
   error: {
     code: string;
@@ -297,7 +311,7 @@ type ApiErrorBody = {
 
 ## Endpoint matrix
 
-All document, report, and artifact routes require the session cookie. A resource
+All document and report routes require the session cookie. A resource
 belonging to another user returns the same `404` envelope as a nonexistent resource.
 
 | Method and path | Request | Success response | Expected failure behavior |
@@ -312,12 +326,9 @@ belonging to another user returns the same `404` envelope as a nonexistent resou
 | `POST /api/v1/documents` | `CreateDocumentRequest`; `{}` is valid; CSRF header | `201 DocumentResponse` | `422 VALIDATION_ERROR` for malformed supplied fields. |
 | `GET /api/v1/documents/{documentId}` | cookie | `200 DocumentResponse` | `404 DOCUMENT_NOT_FOUND` for absent or other-owner document. |
 | `PATCH /api/v1/documents/{documentId}` | `ReplaceDocumentRequest`, CSRF header | `200 DocumentResponse` with server-normalized lines/totals | `404 DOCUMENT_NOT_FOUND`; `409 DOCUMENT_FINALIZED`; `422 VALIDATION_ERROR`. |
-| `DELETE /api/v1/documents/{documentId}` | `{ confirm: true }`, CSRF header, cookie | `204 No Content` | `422 VALIDATION_ERROR` without deliberate confirmation; `404 DOCUMENT_NOT_FOUND`; `502 ARTIFACT_DELETION_FAILED` if a finalized PDF cannot be removed; `502 DOCUMENT_DELETION_PENDING` when the object was removed but a retry is needed to remove the database record. The UI must keep its permanent-deletion confirmation for drafts and finalized documents. |
+| `DELETE /api/v1/documents/{documentId}` | `{ confirm: true }`, CSRF header, cookie | `204 No Content` | `422 VALIDATION_ERROR` without deliberate confirmation; `404 DOCUMENT_NOT_FOUND`. The UI must keep its permanent-deletion confirmation for drafts and finalized documents. |
 | `POST /api/v1/documents/{documentId}/finalize` | no body; CSRF header | `200 DocumentResponse` with `status: "finalized"`; repeating it for an already finalized document is idempotent | `404 DOCUMENT_NOT_FOUND`; `422 DOCUMENT_INCOMPLETE` or `DOCUMENT_HAS_NO_LINES`; `409 DOCUMENT_CONFLICT` if a concurrent draft edit wins. |
 | `POST /api/v1/documents/{documentId}/duplicate` | no body; CSRF header | `201 DocumentResponse` for the new draft | `404 DOCUMENT_NOT_FOUND`; `409 DOCUMENT_NOT_FINALIZED` when source is not finalized. |
-| `GET /api/v1/documents/{documentId}/artifact` | cookie | `200 ArtifactMetadataResponse` | `404` for an unowned/nonexistent document; `409 ARTIFACT_NOT_READY` when unavailable. Never reveal an object key. |
-| `GET /api/v1/documents/{documentId}/artifact/download` | cookie | `200 ArtifactDownloadResponse` | `404` for an unowned/nonexistent document; `409 ARTIFACT_NOT_READY` when unavailable. The presigned URL is never stored in frontend state beyond initiating the download. |
-| `GET /api/v1/artifacts/local/{objectKey}` | generated development URL only; cookie | `200 application/pdf` | The frontend must never construct this path. It is an API-authorized local-storage substitute for a production presigned URL. |
 | `GET /api/v1/reports/summary?startDate={date}&endDate={date}&status={all\|draft\|finalized}&customer={text}` | cookie; dates are required, `status` defaults to `all`, `customer` to empty | `200 ReportResponse` | `422 INVALID_DATE_RANGE` when start is after end; `422 VALIDATION_ERROR` for malformed values. |
 
 The server may return `400 INVALID_JSON` for invalid JSON and `500 INTERNAL_ERROR`
@@ -387,16 +398,17 @@ belongs to another owner returns `404 DOCUMENT_NOT_FOUND`.
    Coalesce edits made while one mutation is in flight, then send the latest complete
    snapshot. A `409 DOCUMENT_FINALIZED` must invalidate/refetch the document and
    transition the UI to read-only rather than continue retrying.
-7. Add a finalized-only download action: load artifact metadata, request the
-   authorized download URL only after user intent, then navigate to that URL. Do not
-   display a storage key or treat a browser preview/`window.print()` as a finalized
-   artifact download.
+7. Keep Preview available for both drafts and finalized documents. The dialog may use
+   `window.print()` but must not request a server-generated file, display a storage
+   key, or present a PDF download action.
 
 ### 4. Make browser validation match the contract
 
-Use text inputs with `inputMode="decimal"`, not `type="number"`. Validate strings
-on blur and before a save using fixed-string/`bigint` comparison helpers—never
-`Number()` for money, quantities, or rates.
+Use text inputs with `inputMode="decimal"`, not `type="number"`. Keep the last valid
+partial string when typing or pasting would introduce a third fractional digit, so an
+invalid precision never enters form state. Preserve natural partial edits such as
+`12.`. Validate the resulting strings on blur and before a save using fixed-string/
+`bigint` comparison helpers—never `Number()` for money, quantities, or rates.
 
 | Field | Browser rule | Server remains authoritative for |
 | --- | --- | --- |
@@ -430,7 +442,8 @@ MSW remains useful for deterministic component tests, but it must mirror the coo
 and CSRF contract. It must not be a browser-persistent alternate database in the real
 application:
 
-- delete the Bearer-token fixture and localStorage-backed mock database/session code;
+- the implementation deletes the Bearer-token fixture and localStorage-backed mock
+  database/session code;
 - make test authentication exercise `POST /auth/login` or a test-only handler that
   establishes an equivalent in-memory session, rather than seeding storage;
 - make MSW return `SessionResponse` without an `accessToken`, require the CSRF header
@@ -449,15 +462,15 @@ application:
 | `apps/web/.env.example` | Describe real same-origin/direct-local API settings and keep mock mode explicitly development-only. |
 | `apps/web/src/lib/generated/openapi.ts` (new) | Checked-in generated FastAPI type declarations. |
 | `apps/web/src/types.ts` | Keep UI-only types; replace hard-coded currencies and mixed read/write DTOs with contract-derived types. |
-| `apps/web/src/lib/api.ts` | Cookie credentials, in-memory CSRF state, stable error parsing, all v1 endpoint functions, and artifact download request. |
+| `apps/web/src/lib/api.ts` | Cookie credentials, in-memory CSRF state, stable error parsing, and all v1 endpoint functions. |
 | `apps/web/src/lib/api.test.ts` | Assert no Bearer/localStorage behavior, CSRF headers, session rehydration, error mapping, and write payload stripping. |
 | `apps/web/src/main.tsx` | Start MSW only when explicitly requested for mock development; preserve real FastAPI mode. |
 | `apps/web/src/App.tsx` | Restore session/CSRF before protected routes and route `/` to `/documents`, not a fixture ID. Add the sign-up route. |
 | `apps/web/src/pages/LoginPage.tsx` and `apps/web/src/pages/SignupPage.tsx` (new) | Replace demo-only assumptions with login/sign-up, session errors, and redirect handling. |
 | `apps/web/src/components/AppShell.tsx` | Use cookie-session logout, clear query data, and handle its CSRF/error state. |
-| `apps/web/src/pages/DocumentEditorPage.tsx` | Dynamic currency config, two-decimal input validation, input-only PATCH payloads, serialized autosave, server-returned totals, conflict recovery, and artifact download. |
+| `apps/web/src/pages/DocumentEditorPage.tsx` | Dynamic currency config, two-decimal entry filtering and validation, direct line tax input, input-only PATCH payloads, serialized autosave, server-returned totals, conflict recovery, and printable preview. |
 | `apps/web/src/components/CalculationSummary.tsx` | Remove floating-derived taxable amount; render returned values only. |
-| `apps/web/src/components/DocumentPreviewDialog.tsx` | Keep it a local draft/print preview and distinguish it from the authorized finalized PDF download. |
+| `apps/web/src/components/DocumentPreviewDialog.tsx` | Render the sole printable output from the authorized document response; it never downloads a backend artifact. |
 | `apps/web/src/pages/DocumentsPage.tsx` | Create/delete against cookie/CSRF API and preserve deliberate deletion confirmation/error states. |
 | `apps/web/src/pages/ReportsPage.tsx` | Consume `documentCount + currencyTotals[]` and remove every use of a mixed root money total. |
 | `apps/web/src/lib/format.ts` | Keep formatting decimal-string safe and support dynamically configured currency codes. |
@@ -480,9 +493,10 @@ the desired production same-origin boundary unless deployment changes the API pr
 4. **Ownership/auth errors:** unauthenticated data calls redirect to login; `404`
    opens the existing neutral “couldn't open” state without naming another user's
    resource.
-5. **Input boundary:** `19.99`, `19.9`, and `19` are accepted/normalized; `19.999`,
-   negatives, exponent notation, and rates above `100.00` are rejected before save.
-   The API's `422` field paths appear next to the relevant React Hook Form field.
+5. **Input boundary:** `19.99`, `19.9`, `19`, and the partial `19.` are accepted;
+   typing or pasting a third fractional digit does not alter form state. Negatives,
+   exponent notation, and rates above `100.00` are rejected before save. The API's
+   `422` field paths appear next to the relevant React Hook Form field.
 6. **Calculation response:** the reference document still renders server-returned
    `450.00` subtotal, `40.00` discount, `11.50` tax, and `421.50` grand total. A
    test inspects the PATCH body to prove it excludes calculated totals and
@@ -494,13 +508,14 @@ the desired production same-origin boundary unless deployment changes the API pr
    constant; an AED document formats correctly; finalized currency is not editable.
 9. **Reports:** inclusive bounds, filters, zero results, and two or more currency
    groups; no DOM/API code accesses `report.totals.grandTotal`.
-10. **Artifact:** only an owned finalized document can obtain metadata/download URL;
-    unavailable artifacts and download failures have accessible error states.
+10. **Preview:** drafts and finalized documents can open the printable preview; the
+    OpenAPI schema, API adapter, and DOM expose no artifact/download surface.
 11. **Browser/accessibility:** run the existing 360, 768, 1024, and 1440 px checks;
     preserve keyboard ordering, focus after mutation errors, loading/empty/error
-    states, dark mode, and reading-mode suppression of editing controls.
+    states, Light/Dark themes, visible line-input focus boundaries, contained summary,
+    and finalized lifecycle suppression of editing controls.
 12. **Real-service integration:** run the same critical sign-up → `421.50` →
-    finalize → rejected edit → authorized download → inclusive report path against a
+    finalize → rejected edit → printable preview → inclusive report path against a
     FastAPI test environment, not MSW alone.
 
 ## Cutover checklist

@@ -1,7 +1,11 @@
 # ADR 0004: Evolved Option 1 editorial workspace
 
-- Status: Superseded in part by ADR 0005
+- Status: Superseded in part by ADR 0005 and ADR 0007
 - Date: 2026-08-10
+
+> The three-mode portion of this decision is historical. ADR 0007 replaces it with
+> Light/Dark appearance controls and lifecycle-driven read-only detail views. ADR 0005
+> replaces the original typefaces and scale.
 
 ## Context
 

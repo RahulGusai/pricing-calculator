@@ -1,23 +1,58 @@
 # Pricing Desk web
 
-React 19 + TypeScript frontend for the multi-rate pricing calculator. This phase is
-fully runnable against an in-browser Mock Service Worker boundary; FastAPI does not
-exist yet.
+React 19 + TypeScript frontend for the multi-rate pricing calculator. Its normal
+runtime path is the FastAPI v1 service; MSW is retained only as an explicit,
+in-memory contract double for browser/unit tests and visual exploration.
 
-## Run locally
+## Local development
+
+Start FastAPI first (including the `CORS_ALLOWED_ORIGINS=http://localhost:5173`
+value from [`../api/.env.example`](../api/.env.example)), then run:
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173` and use:
+Vite development defaults to `http://localhost:8000` when `VITE_API_URL` is not
+set. Railway production uses the same-origin Caddy `/api/*` proxy instead. Create
+an account from `/signup`; there are no browser-stored demo credentials.
 
-- email: `avery@northstar.example`
-- password: `pricing123`
+`VITE_API_MODE=mock` is permitted only for an isolated local visual/test session.
+Production builds never start the MSW worker.
 
-Mock documents persist in browser `localStorage`. Clear site data to restore the
-seeded workspace. Tests reset the mock store before each case.
+## Contract and session model
+
+- `npm run generate:api` writes checked-in FastAPI OpenAPI declarations to
+  `src/lib/generated/openapi.ts` (FastAPI must be running on port 8000).
+- `npm run check:api` regenerates those declarations and fails if they are stale.
+- `src/lib/api.ts` is the only component-facing HTTP client. It sends
+  `credentials: "include"`, holds the API-provided CSRF value only in module
+  memory, retries one stale-CSRF response, and never sends a bearer token.
+- The editor submits only write fields and renders pricing totals returned by
+  FastAPI. It discovers selectable currencies from `/api/v1/config/currencies`.
+- Line-level tax is a direct percentage input. Decimal controls retain natural partial
+  edit states but do not accept more than two fractional digits; FastAPI remains the
+  authoritative validation and calculation boundary.
+- Preview is the only printable output for drafts and finalized documents. It can open
+  the browser print dialog and never requests a generated backend PDF.
+- Line descriptions are multiline, wrap within the item column, and are capped at 240
+  characters by both the UI and FastAPI.
+- Reports render an explicit totals row for every currency in the selected period.
+
+## Editor UX contract
+
+- Source Sans 3 carries the operational UI and financial data; Source Serif 4 is a
+  restrained document-identity accent. Desktop document titles stay within 30-34px.
+- Light and Dark are the only appearance modes. Their icon-only controls live in the
+  sidebar utility area formerly occupied by Settings and expose accessible labels,
+  tooltips, and selection state.
+- The right-hand calculation summary remains contained by the editor grid. No bottom
+  action or status surface may span across or obscure it.
+- Compound fields expose one outer focus border; nested inputs must not render a
+  competing inner focus rectangle.
+- Finalized documents use the normal detail view with editing disabled; read-only
+  lifecycle behavior is independent from appearance.
 
 ## Checks
 
@@ -30,38 +65,19 @@ npm run test:sites
 ```
 
 `npm run build` writes the browser bundle to `dist/client` and preserves the
-Product Design hosting worker contract. The Railway image serves `dist/client` with
-Caddy and proxies relative `/api/*` requests to `API_UPSTREAM`.
+Sites-hosting worker contract. The Railway image serves `dist/client` with Caddy and
+proxies relative `/api/*` requests to `API_UPSTREAM`.
 
 ## Source map
 
-- `src/pages`: login, document register, editor, and reports.
-- `src/components`: shared shell, mode switch, preview, and calculation summary.
-- `src/lib/api.ts`: the only component-facing HTTP client.
-- `src/mocks`: deterministic fixtures, fixed-point pricing, tenant-scoped store, and
-  MSW handlers.
-- `src/types.ts`: temporary mock/API contract types; replace from FastAPI OpenAPI in
-  the backend conformance pass.
+- `src/pages`: auth, document register, editor, and reports.
+- `src/components`: shell, Light/Dark theme controls, preview, and server-returned
+  total UI.
+- `src/lib/api.ts`: the real FastAPI adapter and browser-session boundary.
+- `src/lib/generated/openapi.ts`: generated, checked-in FastAPI contract types.
+- `src/mocks`: explicit MSW-only in-memory test fixture and fixed-point contract
+  double. It does not persist browser data or use bearer authentication.
 
-## Mock contract
-
-The mock uses `/api/v1` routes, realistic latency, bearer session behavior, owner
-scoping, structured error envelopes, draft/finalized conflicts, duplication, and
-inclusive report filtering. It returns decimal strings and calculates money with
-fixed-point `bigint` arithmetic. React components never import fixtures or calculate
-authoritative totals.
-
-The selected sample must remain `450.00` subtotal, `40.00` discount, `11.50` tax,
-and `421.50` grand total.
-
-## Environment
-
-- Local development uses mocks by default.
-- Set `VITE_API_MODE=real` (and optionally `VITE_API_URL`) when intentionally calling
-  a real API during development.
-- A production mock bundle requires `VITE_API_MODE=mock`; normal production builds
-  expect Caddy to proxy `/api` to FastAPI.
-- Never put database or object-storage credentials in `VITE_*` variables.
-
-See the root [README](../../README.md), [frontend design brief](../../docs/frontend-design-brief.md),
+See the root [README](../../README.md),
+[frontend/backend migration record](../../docs/frontend-backend-migration-plan.md),
 and [deployment guide](../../docs/deployment.md).

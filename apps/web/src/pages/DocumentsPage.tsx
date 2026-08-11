@@ -56,7 +56,7 @@ export function DocumentsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: createDocument,
+    mutationFn: () => createDocument(),
     onSuccess: (document) => {
       void queryClient.invalidateQueries({ queryKey: ["documents"] });
       navigate(`/documents/${document.id}`);

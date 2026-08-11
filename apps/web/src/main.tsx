@@ -10,8 +10,7 @@ import "./styles.css";
 import "./pages/ancillary.css";
 
 async function enableMocking() {
-  if (import.meta.env.VITE_API_MODE === "real") return;
-  if (import.meta.env.PROD && import.meta.env.VITE_API_MODE !== "mock") return;
+  if (import.meta.env.VITE_API_MODE !== "mock" || import.meta.env.PROD) return;
   const { worker } = await import("./mocks/browser");
   await worker.start({ onUnhandledRequest: "bypass", quiet: true });
 }

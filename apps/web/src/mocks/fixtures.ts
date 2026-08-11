@@ -15,10 +15,8 @@ export const MOCK_USER: User = {
 
 export const MOCK_CREDENTIALS = {
   email: MOCK_USER.email,
-  password: "pricing123",
+  password: "pricing-demo",
 } as const;
-
-export const MOCK_ACCESS_TOKEN = "mock-access-token-northstar";
 export const SAMPLE_DOCUMENT_ID = "sample-draft";
 export const SECOND_TENANT_DOCUMENT_ID = "document-hidden-tenant-001";
 
@@ -143,7 +141,7 @@ export function buildFixtureDocuments(): OwnedPricingDocument[] {
       customerName: "Acme Corporation",
       documentDate: "2026-06-15",
       validUntil: "2026-07-15",
-      currency: "USD",
+      currency: "AED",
       status: "finalized",
       updatedAt: "2026-06-16T10:00:00.000Z",
       finalizedAt: "2026-06-16T10:00:00.000Z",

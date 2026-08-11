@@ -7,20 +7,17 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { getSession, signIn } from "../lib/api";
-
-const DEMO_EMAIL = "avery@northstar.example";
-const DEMO_PASSWORD = "pricing123";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "We could not sign you in. Please try again.";
 }
 
 export function LoginPage() {
-  const [email, setEmail] = useState(DEMO_EMAIL);
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -91,7 +88,7 @@ export function LoginPage() {
         <div className="login-form-wrap">
           <p className="ancillary-eyebrow">Welcome back</p>
           <h2 id="login-title">Sign in to your desk</h2>
-          <p className="login-intro">The demo workspace is ready with sample documents.</p>
+          <p className="login-intro">Use the secure account you created for this workspace.</p>
 
           <form className="login-form" onSubmit={submit} noValidate>
             <label htmlFor="login-email">Email address</label>
@@ -150,9 +147,9 @@ export function LoginPage() {
           </form>
 
           <div className="login-demo-note">
-            <span>Demo access</span>
-            <code>{DEMO_EMAIL}</code>
-            <small>Password is prefilled for this take-home experience.</small>
+            <span>New to Pricing Desk?</span>
+            <Link to="/signup">Create your workspace</Link>
+            <small>Your session is secured with an HTTP-only cookie.</small>
           </div>
         </div>
       </section>

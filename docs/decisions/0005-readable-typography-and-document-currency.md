@@ -22,7 +22,7 @@ Each draft chooses exactly one currency from USD, INR, and AED (the United Arab
 Emirates dirham). The enabled subset is backend environment configuration; the
 frontend retrieves it from the currency-config API rather than hard-coding a wider
 list. All three use two decimal places: cents, paise, and fils respectively. The
-currency applies to every line, discount, total, preview, and finalized artifact for
+currency applies to every line, discount, total, and printable preview for
 that document. Changing a draft currency changes presentation and denomination; it
 never performs conversion. Reports expose totals grouped by currency instead of
 presenting one mathematically invalid mixed-currency total.

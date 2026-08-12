@@ -38,6 +38,14 @@ to the API service; PostgreSQL holds the application record.
 
 ## Tech stack
 
+### Frontend
+
+- React
+- TypeScript
+- Vite
+
+### Backend
+
 - FastAPI
 - PostgreSQL
 
@@ -54,7 +62,9 @@ to the API service; PostgreSQL holds the application record.
 └── README.md
 ```
 
-## Prerequisites
+## How to run locally
+
+### Prerequisites
 
 - Python 3.12 or later
 - uv
@@ -62,7 +72,7 @@ to the API service; PostgreSQL holds the application record.
 
 SQLite is included with Python, so no database server is needed for this setup.
 
-## Set up and run with SQLite
+### Set up and run with SQLite
 
 1. Clone the repository and enter it.
 
